@@ -3,6 +3,8 @@ import { Layout } from "./components/Layout";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AuthProvider } from "./context/AuthContext";
 import { FarmProvider } from "./context/FarmContext";
+import { Calendar } from "./pages/Calendar";
+import { Crops } from "./pages/Crops";
 import { Dashboard } from "./pages/Dashboard";
 import { FarmSelector } from "./pages/FarmSelector";
 import { LandIntelligence } from "./pages/LandIntelligence";
@@ -29,26 +31,8 @@ function App() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/farms/new" element={<FarmSelector />} />
               <Route path="/land-intelligence" element={<LandIntelligence />} />
-              <Route
-                path="/crops"
-                element={
-                  <PlaceholderPage
-                    title="Crop Recommendations & Registration"
-                    description="Smart Nepal crop matching and crop registration will appear here."
-                    owner="Priya"
-                  />
-                }
-              />
-              <Route
-                path="/calendar"
-                element={
-                  <PlaceholderPage
-                    title="Farming Calendar & Smart Irrigation"
-                    description="Stage-by-stage farming tasks and weather-aware irrigation advice will appear here."
-                    owner="Priya"
-                  />
-                }
-              />
+              <Route path="/crops" element={<Crops />} />
+              <Route path="/calendar" element={<Calendar />} />
               <Route
                 path="/plant-doctor"
                 element={
