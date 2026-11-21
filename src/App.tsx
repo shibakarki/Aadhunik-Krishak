@@ -1,13 +1,14 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { Layout } from './components/Layout';
-import { ProtectedRoute } from './components/ProtectedRoute';
-import { AuthProvider } from './context/AuthContext';
-import { FarmProvider } from './context/FarmContext';
-import { Dashboard } from './pages/Dashboard';
-import { FarmSelector } from './pages/FarmSelector';
-import { Login } from './pages/Login';
-import { PlaceholderPage } from './pages/PlaceholderPage';
-import { Register } from './pages/Register';
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { Layout } from "./components/Layout";
+import { ProtectedRoute } from "./components/ProtectedRoute";
+import { AuthProvider } from "./context/AuthContext";
+import { FarmProvider } from "./context/FarmContext";
+import { Dashboard } from "./pages/Dashboard";
+import { FarmSelector } from "./pages/FarmSelector";
+import { LandIntelligence } from "./pages/LandIntelligence";
+import { Login } from "./pages/Login";
+import { PlaceholderPage } from "./pages/PlaceholderPage";
+import { Register } from "./pages/Register";
 
 function App() {
   return (
@@ -27,16 +28,7 @@ function App() {
             >
               <Route path="/" element={<Dashboard />} />
               <Route path="/farms/new" element={<FarmSelector />} />
-              <Route
-                path="/land-intelligence"
-                element={
-                  <PlaceholderPage
-                    title="Land Intelligence"
-                    description="Soil pH, organic carbon, texture analysis, and agro-zone insights are coming soon."
-                    owner="Priya"
-                  />
-                }
-              />
+              <Route path="/land-intelligence" element={<LandIntelligence />} />
               <Route
                 path="/crops"
                 element={
