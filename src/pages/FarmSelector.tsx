@@ -4,12 +4,14 @@ import L from 'leaflet';
 import {
   AlertCircle,
   CheckCircle2,
+  Circle,
   Globe,
   Loader2,
   LocateFixed,
   Map as MapIcon,
   MapPin,
   Mountain,
+  RectangleHorizontal,
   Ruler,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -21,6 +23,7 @@ import { fetchFarmWeather } from '../services/weatherService';
 
 type AreaUnit = 'sqm' | 'ropani' | 'bigha' | 'hectares';
 type MapType = 'street' | 'satellite';
+type PlotShape = 'circle' | 'rectangle';
 
 const NEPAL_CENTER: [number, number] = [28.3949, 84.124];
 
@@ -40,6 +43,11 @@ const TILE_LAYERS: Record<
     maxZoom: 19,
   },
 };
+
+const SATELLITE_ROADS_URL =
+  'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}';
+const SATELLITE_LABELS_URL =
+  'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}';
 
 const pinIcon = L.divIcon({
   className: '',
@@ -119,13 +127,17 @@ export function FarmSelector() {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
+  const roadsLayerRef = useRef<L.TileLayer | null>(null);
+  const labelsLayerRef = useRef<L.TileLayer | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
+  const shapeLayerRef = useRef<L.Circle | L.Rectangle | null>(null);
   const geocodeAbortRef = useRef<AbortController | null>(null);
 
   const farmNameEditedRef = useRef(false);
   const districtEditedRef = useRef(false);
 
   const [mapType, setMapType] = useState<MapType>('street');
+  const [plotShape, setPlotShape] = useState<PlotShape>('circle');
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
 
@@ -210,6 +222,7 @@ export function FarmSelector() {
 
     const map = mapRef.current;
     if (map) {
+      const isFirstPin = !markerRef.current;
       if (markerRef.current) {
         markerRef.current.setLatLng([lat, lng]);
       } else {
@@ -217,7 +230,9 @@ export function FarmSelector() {
       }
 
       if (zoomToLocation) {
-        map.setView([lat, lng], 15);
+        map.setView([lat, lng], 16);
+      } else if (isFirstPin && map.getZoom() < 14) {
+        map.setView([lat, lng], 16);
       }
     }
 
@@ -240,27 +255,109 @@ export function FarmSelector() {
       map.remove();
       mapRef.current = null;
       tileLayerRef.current = null;
+      roadsLayerRef.current = null;
+      labelsLayerRef.current = null;
       markerRef.current = null;
+      shapeLayerRef.current = null;
     };
   }, []);
 
-  // Swap Street <-> Satellite tile layer without losing marker or zoom
+  // Swap Street <-> Satellite tile layer (with place & road labels on Satellite)
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
     if (tileLayerRef.current) {
       map.removeLayer(tileLayerRef.current);
+      tileLayerRef.current = null;
+    }
+    if (roadsLayerRef.current) {
+      map.removeLayer(roadsLayerRef.current);
+      roadsLayerRef.current = null;
+    }
+    if (labelsLayerRef.current) {
+      map.removeLayer(labelsLayerRef.current);
+      labelsLayerRef.current = null;
     }
 
     const config = TILE_LAYERS[mapType];
-    const nextLayer = L.tileLayer(config.url, {
+    tileLayerRef.current = L.tileLayer(config.url, {
       attribution: config.attribution,
       maxZoom: config.maxZoom,
     }).addTo(map);
 
-    tileLayerRef.current = nextLayer;
+    if (mapType === 'satellite') {
+      roadsLayerRef.current = L.tileLayer(SATELLITE_ROADS_URL, {
+        maxZoom: 19,
+        zIndex: 250,
+        opacity: 0.75,
+      }).addTo(map);
+
+      labelsLayerRef.current = L.tileLayer(SATELLITE_LABELS_URL, {
+        maxZoom: 19,
+        zIndex: 251,
+      }).addTo(map);
+    }
   }, [mapType]);
+
+  const parsedArea = Number.parseFloat(areaInput);
+  const areaInHectares =
+    Number.isFinite(parsedArea) && parsedArea > 0
+      ? Number(convertToHectares(parsedArea, areaUnit).toFixed(4))
+      : 0;
+  const areaSqMeters = Math.max(areaInHectares * 10000, 1);
+
+  // Draw dashed Circle or Rectangle boundary around the selected point
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (shapeLayerRef.current) {
+      map.removeLayer(shapeLayerRef.current);
+      shapeLayerRef.current = null;
+    }
+
+    if (latitude === null || longitude === null || areaInHectares <= 0) {
+      return;
+    }
+
+    const strokeColor = mapType === 'satellite' ? '#facc15' : '#059669';
+    const shapeStyle: L.PathOptions = {
+      color: strokeColor,
+      weight: 2.5,
+      dashArray: '8, 6',
+      fillColor: strokeColor,
+      fillOpacity: 0.16,
+      interactive: false,
+    };
+
+    if (plotShape === 'circle') {
+      const radiusMeters = Math.sqrt(areaSqMeters / Math.PI);
+      shapeLayerRef.current = L.circle([latitude, longitude], {
+        ...shapeStyle,
+        radius: radiusMeters,
+      }).addTo(map);
+    } else {
+      const aspectRatio = 1.4;
+      const widthMeters = Math.sqrt(areaSqMeters * aspectRatio);
+      const heightMeters = areaSqMeters / widthMeters;
+
+      const metersPerDegLat = 111320;
+      const metersPerDegLng =
+        111320 * Math.max(Math.cos((latitude * Math.PI) / 180), 0.1);
+
+      const halfLat = heightMeters / 2 / metersPerDegLat;
+      const halfLng = widthMeters / 2 / metersPerDegLng;
+
+      shapeLayerRef.current = L.rectangle(
+        [
+          [latitude - halfLat, longitude - halfLng],
+          [latitude + halfLat, longitude + halfLng],
+        ],
+        shapeStyle
+      ).addTo(map);
+    }
+  }, [latitude, longitude, areaInHectares, areaSqMeters, plotShape, mapType]);
 
   const handleUseMyLocation = () => {
     setError(null);
@@ -288,12 +385,6 @@ export function FarmSelector() {
       { enableHighAccuracy: true, timeout: 10000 }
     );
   };
-
-  const parsedArea = Number.parseFloat(areaInput);
-  const areaInHectares =
-    Number.isFinite(parsedArea) && parsedArea > 0
-      ? Number(convertToHectares(parsedArea, areaUnit).toFixed(4))
-      : 0;
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -361,6 +452,13 @@ export function FarmSelector() {
     }
   };
 
+  const shapeDimensionLabel =
+    plotShape === 'circle'
+      ? `~${Math.round(Math.sqrt(areaSqMeters / Math.PI) * 2)} m diameter`
+      : `~${Math.round(Math.sqrt(areaSqMeters * 1.4))} m × ${Math.round(
+          areaSqMeters / Math.sqrt(areaSqMeters * 1.4)
+        )} m`;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -418,36 +516,70 @@ export function FarmSelector() {
               )}
             </div>
 
-            {/* Street / Satellite Switcher */}
-            <div
-              role="group"
-              aria-label="Map layer switcher"
-              className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200"
-            >
-              <button
-                type="button"
-                onClick={() => setMapType('street')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
-                  mapType === 'street'
-                    ? 'bg-white text-emerald-700 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Circle / Rectangle Plot Boundary Toggle */}
+              <div
+                role="group"
+                aria-label="Plot boundary shape"
+                className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200"
               >
-                <MapIcon className="w-3.5 h-3.5" />
-                Street
-              </button>
-              <button
-                type="button"
-                onClick={() => setMapType('satellite')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
-                  mapType === 'satellite'
-                    ? 'bg-white text-emerald-700 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
+                <button
+                  type="button"
+                  onClick={() => setPlotShape('circle')}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                    plotShape === 'circle'
+                      ? 'bg-white text-emerald-700 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Circle className="w-3.5 h-3.5" />
+                  Circle
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPlotShape('rectangle')}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                    plotShape === 'rectangle'
+                      ? 'bg-white text-emerald-700 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <RectangleHorizontal className="w-3.5 h-3.5" />
+                  Rectangle
+                </button>
+              </div>
+
+              {/* Street / Satellite Switcher */}
+              <div
+                role="group"
+                aria-label="Map layer switcher"
+                className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200"
               >
-                <Globe className="w-3.5 h-3.5" />
-                Satellite
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setMapType('street')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                    mapType === 'street'
+                      ? 'bg-white text-emerald-700 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <MapIcon className="w-3.5 h-3.5" />
+                  Street
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMapType('satellite')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                    mapType === 'satellite'
+                      ? 'bg-white text-emerald-700 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Globe className="w-3.5 h-3.5" />
+                  Satellite
+                </button>
+              </div>
             </div>
           </div>
 
@@ -556,7 +688,7 @@ export function FarmSelector() {
               </select>
             </div>
             <p className="mt-1.5 text-xs text-slate-500">
-              Converted area: <strong>{areaInHectares} ha</strong>
+              Converted: <strong>{areaInHectares} ha</strong> ({shapeDimensionLabel})
             </p>
           </div>
 
