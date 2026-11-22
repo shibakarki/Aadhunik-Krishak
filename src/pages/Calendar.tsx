@@ -38,13 +38,14 @@ import {
   type AppLanguage,
 } from "../context/LanguageContext";
 import { supabase } from "../lib/supabase";
-import { getCropByKey } from "../services/cropEngine";
+import { getCropByKey, loadActiveCropCatalog } from "../services/cropEngine";
 import { getIrrigationAdvice } from "../services/irrigationEngine";
 import { fetchFarmWeather } from "../services/weatherService";
 import type {
   ActivityType,
   FarmingActivity,
   IrrigationAdvice,
+  NepalCrop,
   RegisteredCrop,
   WeatherData,
 } from "../types";
@@ -240,10 +241,11 @@ function getLocalizedIrrigationCopy(
 function isStageTemplateTask(
   task: FarmingActivity,
   cropById: Record<string, RegisteredCrop>,
+  cropCatalog: NepalCrop[],
 ): boolean {
   const crop = cropById[task.crop_id];
   if (!crop) return false;
-  const nepalCrop = getCropByKey(crop.crop_key);
+  const nepalCrop = getCropByKey(crop.crop_key, cropCatalog);
   if (!nepalCrop) return false;
   return nepalCrop.stages.some(
     (stage) => task.title === `${nepalCrop.name}: ${stage.title}`,
@@ -268,6 +270,7 @@ export function Calendar() {
 
   const [activities, setActivities] = useState<FarmingActivity[]>([]);
   const [crops, setCrops] = useState<RegisteredCrop[]>([]);
+  const [cropCatalog, setCropCatalog] = useState<NepalCrop[]>([]);
   const [selectedIrrigationCropId, setSelectedIrrigationCropId] =
     useState<string>("");
   const [weather, setWeather] = useState<WeatherData | null>(null);
@@ -292,19 +295,22 @@ export function Calendar() {
     setError(null);
     setWeatherError(null);
 
-    const [actRes, cropsRes, weatherRes] = await Promise.allSettled([
-      supabase
-        .from("activities")
-        .select("*")
-        .eq("farm_id", activeFarm.id)
-        .order("due_date", { ascending: true }),
-      supabase
-        .from("crops")
-        .select("*")
-        .eq("farm_id", activeFarm.id)
-        .order("created_at", { ascending: false }),
-      fetchFarmWeather(activeFarm.latitude, activeFarm.longitude),
-    ]);
+    const [actRes, cropsRes, weatherRes, catalogRes] = await Promise.allSettled(
+      [
+        supabase
+          .from("activities")
+          .select("*")
+          .eq("farm_id", activeFarm.id)
+          .order("due_date", { ascending: true }),
+        supabase
+          .from("crops")
+          .select("*")
+          .eq("farm_id", activeFarm.id)
+          .order("created_at", { ascending: false }),
+        fetchFarmWeather(activeFarm.latitude, activeFarm.longitude),
+        loadActiveCropCatalog(),
+      ],
+    );
 
     if (actRes.status === "fulfilled") {
       if (actRes.value.error) {
@@ -342,6 +348,10 @@ export function Calendar() {
       );
     }
 
+    if (catalogRes.status === "fulfilled") {
+      setCropCatalog(catalogRes.value);
+    }
+
     setLoading(false);
   }, [activeFarm?.id, activeFarm?.latitude, activeFarm?.longitude, lang]);
 
@@ -367,9 +377,11 @@ export function Calendar() {
   const getLocalizedCropName = useCallback(
     (crop: RegisteredCrop): string => {
       if (lang === "en") return crop.crop_name;
-      return getCropByKey(crop.crop_key)?.nepaliName ?? crop.crop_name;
+      return (
+        getCropByKey(crop.crop_key, cropCatalog)?.nepaliName ?? crop.crop_name
+      );
     },
-    [lang],
+    [lang, cropCatalog],
   );
 
   const irrigationTargetCrop = useMemo(() => {
@@ -384,7 +396,7 @@ export function Calendar() {
   const irrigationAdvice: IrrigationAdvice | null = useMemo(() => {
     if (!weather || !activeFarm) return null;
     const nepalCrop = irrigationTargetCrop
-      ? getCropByKey(irrigationTargetCrop.crop_key)
+      ? getCropByKey(irrigationTargetCrop.crop_key, cropCatalog)
       : undefined;
 
     return getIrrigationAdvice({
@@ -394,7 +406,13 @@ export function Calendar() {
         ? getLocalizedCropName(irrigationTargetCrop)
         : activeFarm.name,
     });
-  }, [weather, activeFarm, irrigationTargetCrop, getLocalizedCropName]);
+  }, [
+    weather,
+    activeFarm,
+    irrigationTargetCrop,
+    cropCatalog,
+    getLocalizedCropName,
+  ]);
 
   const activitiesByDate = useMemo(() => {
     const grouped: Record<string, FarmingActivity[]> = {};
@@ -471,9 +489,9 @@ export function Calendar() {
   const visibleSelectedDayTasks = useMemo(() => {
     if (!hideAddedTasks) return selectedDayTasks;
     return selectedDayTasks.filter((task) =>
-      isStageTemplateTask(task, cropById),
+      isStageTemplateTask(task, cropById, cropCatalog),
     );
-  }, [selectedDayTasks, hideAddedTasks, cropById]);
+  }, [selectedDayTasks, hideAddedTasks, cropById, cropCatalog]);
 
   const hiddenAddedCount =
     selectedDayTasks.length - visibleSelectedDayTasks.length;
@@ -500,10 +518,12 @@ export function Calendar() {
   const upcomingTasks = useMemo(() => {
     const pending = activities.filter((a) => !a.completed);
     const filtered = hideAddedTasks
-      ? pending.filter((task) => isStageTemplateTask(task, cropById))
+      ? pending.filter((task) =>
+          isStageTemplateTask(task, cropById, cropCatalog),
+        )
       : pending;
     return filtered.slice(0, 20);
-  }, [activities, hideAddedTasks, cropById]);
+  }, [activities, hideAddedTasks, cropById, cropCatalog]);
 
   const selectedDateBs = useMemo(
     () => getBsLabelForAdDate(selectedDateKey),
@@ -1116,9 +1136,7 @@ export function Calendar() {
                 <h3 className="mt-0.5 text-xl font-bold">{selectedDateKey}</h3>
                 {selectedDateBs && (
                   <p className="mt-0.5 text-xs text-slate-300">
-                    {lang === "ne"
-                      ? `${selectedDateBs.fullLabelNe} (${selectedDateBs.fullLabelEn})`
-                      : `${selectedDateBs.fullLabelNe} (${selectedDateBs.fullLabelEn})`}
+                    {`${selectedDateBs.fullLabelNe} (${selectedDateBs.fullLabelEn})`}
                   </p>
                 )}
               </div>
@@ -1228,6 +1246,7 @@ export function Calendar() {
                       const isAddedCustom = !isStageTemplateTask(
                         task,
                         cropById,
+                        cropCatalog,
                       );
                       const isFutureTask = task.due_date > todayKey;
                       const isSwitchDisabled = isFutureTask && !task.completed;
@@ -1290,7 +1309,6 @@ export function Calendar() {
                             )}
                           </div>
 
-                          {/* Done/Undone Switch + Remove */}
                           <div className="flex shrink-0 flex-col items-end gap-2">
                             <div className="flex items-center gap-1.5">
                               <span
@@ -1567,7 +1585,11 @@ export function Calendar() {
                 ) : (
                   upcomingTasks.map((task) => {
                     const meta = ACTIVITY_META[task.activity_type];
-                    const isAddedCustom = !isStageTemplateTask(task, cropById);
+                    const isAddedCustom = !isStageTemplateTask(
+                      task,
+                      cropById,
+                      cropCatalog,
+                    );
                     const isFutureTask = task.due_date > todayKey;
                     const isSwitchDisabled = isFutureTask && !task.completed;
                     const isDeleting = deletingTaskId === task.id;
