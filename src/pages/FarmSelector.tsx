@@ -14,11 +14,12 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useFarm } from '../context/FarmContext';
+import { NEPAL_DISTRICTS } from '../data/nepalDistricts';
 import { supabase } from '../lib/supabase';
 import { determineAgroZone } from '../services/cropEngine';
 import { fetchFarmWeather } from '../services/weatherService';
 
-type AreaUnit = 'hectares' | 'ropani' | 'bigha';
+type AreaUnit = 'sqm' | 'ropani' | 'bigha' | 'hectares';
 type MapType = 'street' | 'satellite';
 
 const NEPAL_CENTER: [number, number] = [28.3949, 84.124];
@@ -47,7 +48,64 @@ const pinIcon = L.divIcon({
   iconAnchor: [13, 26],
 });
 
+const DISTRICT_ALIASES: Record<string, string> = {
+  dhanusa: 'Dhanusha',
+  kavrepalanchowk: 'Kavrepalanchok',
+  makawanpur: 'Makwanpur',
+  'rukum east': 'Eastern Rukum',
+  'east rukum': 'Eastern Rukum',
+  'rukum west': 'Western Rukum',
+  'west rukum': 'Western Rukum',
+  'nawalparasi east': 'Nawalpur',
+  'nawalparasi west': 'Parasi',
+  tanahu: 'Tanahun',
+  kapilbastu: 'Kapilvastu',
+  terathum: 'Terhathum',
+  chitawan: 'Chitwan',
+  illam: 'Ilam',
+  panchathar: 'Panchthar',
+  sindhupalchowk: 'Sindhupalchok',
+};
+
+function normalizeNepalDistrict(raw?: string): string {
+  if (!raw) return '';
+  const cleaned = raw
+    .replace(/\bDistrict\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const lower = cleaned.toLowerCase();
+  if (DISTRICT_ALIASES[lower]) {
+    return DISTRICT_ALIASES[lower];
+  }
+
+  const exactMatch = NEPAL_DISTRICTS.find(
+    (d) => d.toLowerCase() === lower
+  );
+  return exactMatch ?? cleaned;
+}
+
+interface NominatimAddress {
+  hamlet?: string;
+  village?: string;
+  neighbourhood?: string;
+  suburb?: string;
+  town?: string;
+  city_district?: string;
+  municipality?: string;
+  city?: string;
+  county?: string;
+  state_district?: string;
+  district?: string;
+}
+
+interface NominatimResponse {
+  name?: string;
+  address?: NominatimAddress;
+}
+
 function convertToHectares(value: number, unit: AreaUnit): number {
+  if (unit === 'sqm') return value / 10000;
   if (unit === 'ropani') return value * 0.050874;
   if (unit === 'bigha') return value * 0.677263;
   return value;
@@ -62,6 +120,10 @@ export function FarmSelector() {
   const mapRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
+  const geocodeAbortRef = useRef<AbortController | null>(null);
+
+  const farmNameEditedRef = useRef(false);
+  const districtEditedRef = useRef(false);
 
   const [mapType, setMapType] = useState<MapType>('street');
   const [latitude, setLatitude] = useState<number | null>(null);
@@ -69,29 +131,97 @@ export function FarmSelector() {
 
   const [farmName, setFarmName] = useState('');
   const [district, setDistrict] = useState('');
-  const [areaInput, setAreaInput] = useState('1');
-  const [areaUnit, setAreaUnit] = useState<AreaUnit>('ropani');
+  const [areaInput, setAreaInput] = useState('500');
+  const [areaUnit, setAreaUnit] = useState<AreaUnit>('sqm');
 
   const [locating, setLocating] = useState(false);
+  const [resolvingAddress, setResolvingAddress] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const reverseGeocodePoint = async (lat: number, lng: number) => {
+    geocodeAbortRef.current?.abort();
+    const controller = new AbortController();
+    geocodeAbortRef.current = controller;
+
+    setResolvingAddress(true);
+
+    try {
+      const params = new URLSearchParams({
+        format: 'jsonv2',
+        lat: lat.toString(),
+        lon: lng.toString(),
+        zoom: '16',
+        addressdetails: '1',
+        'accept-language': 'en',
+      });
+
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?${params.toString()}`,
+        { signal: controller.signal }
+      );
+
+      if (!response.ok) return;
+
+      const data = (await response.json()) as NominatimResponse;
+      const addr = data.address;
+      if (!addr) return;
+
+      const rawDistrict =
+        addr.county ?? addr.state_district ?? addr.district ?? '';
+      const resolvedDistrict = normalizeNepalDistrict(rawDistrict);
+
+      if (resolvedDistrict && !districtEditedRef.current) {
+        setDistrict(resolvedDistrict);
+      }
+
+      const placeName =
+        addr.hamlet ??
+        addr.village ??
+        addr.neighbourhood ??
+        addr.suburb ??
+        addr.town ??
+        addr.municipality ??
+        addr.city_district ??
+        addr.city ??
+        (data.name && data.name !== rawDistrict ? data.name : '');
+
+      if (placeName && !farmNameEditedRef.current) {
+        const cleanPlace = placeName.trim();
+        const suggestedName = /farm/i.test(cleanPlace)
+          ? cleanPlace
+          : `${cleanPlace} Farm`;
+        setFarmName(suggestedName);
+      }
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') {
+        // Silently ignore reverse-geocoding network issues; user can type manually
+      }
+    } finally {
+      if (geocodeAbortRef.current === controller) {
+        setResolvingAddress(false);
+      }
+    }
+  };
 
   const placeMarker = (lat: number, lng: number, zoomToLocation = false) => {
     setLatitude(Number(lat.toFixed(6)));
     setLongitude(Number(lng.toFixed(6)));
 
     const map = mapRef.current;
-    if (!map) return;
+    if (map) {
+      if (markerRef.current) {
+        markerRef.current.setLatLng([lat, lng]);
+      } else {
+        markerRef.current = L.marker([lat, lng], { icon: pinIcon }).addTo(map);
+      }
 
-    if (markerRef.current) {
-      markerRef.current.setLatLng([lat, lng]);
-    } else {
-      markerRef.current = L.marker([lat, lng], { icon: pinIcon }).addTo(map);
+      if (zoomToLocation) {
+        map.setView([lat, lng], 15);
+      }
     }
 
-    if (zoomToLocation) {
-      map.setView([lat, lng], 15);
-    }
+    void reverseGeocodePoint(lat, lng);
   };
 
   // Initialize Leaflet map once
@@ -106,6 +236,7 @@ export function FarmSelector() {
     });
 
     return () => {
+      geocodeAbortRef.current?.abort();
       map.remove();
       mapRef.current = null;
       tileLayerRef.current = null;
@@ -181,8 +312,8 @@ export function FarmSelector() {
     }
 
     const trimmedName = farmName.trim();
-    if (!trimmedName) {
-      setError('Please enter a name for your farm.');
+    if (!trimmedName || trimmedName.length < 2) {
+      setError('Please enter a valid farm name (at least 2 characters).');
       return;
     }
 
@@ -239,7 +370,7 @@ export function FarmSelector() {
           </h1>
           <p className="text-sm text-slate-600 mt-1">
             Click anywhere on the Nepal map or use GPS to automatically detect
-            elevation and agro-ecological zone.
+            location name, district, elevation, and agro-ecological zone.
           </p>
         </div>
 
@@ -331,7 +462,15 @@ export function FarmSelector() {
           onSubmit={handleSubmit}
           className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4 h-fit"
         >
-          <h2 className="text-lg font-bold text-slate-900">Farm Details</h2>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-lg font-bold text-slate-900">Farm Details</h2>
+            {resolvingAddress && (
+              <span className="inline-flex items-center gap-1.5 text-xs text-emerald-700 font-medium">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Detecting place...
+              </span>
+            )}
+          </div>
 
           <div>
             <label
@@ -344,9 +483,14 @@ export function FarmSelector() {
               id="farmName"
               type="text"
               required
+              maxLength={100}
               value={farmName}
-              onChange={(e) => setFarmName(e.target.value)}
-              placeholder="e.g. Pokhara Valley Plot"
+              onChange={(e) => {
+                const nextValue = e.target.value;
+                farmNameEditedRef.current = nextValue.trim().length > 0;
+                setFarmName(nextValue);
+              }}
+              placeholder="Auto-filled from map or type a name"
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
           </div>
@@ -361,11 +505,21 @@ export function FarmSelector() {
             <input
               id="district"
               type="text"
+              list="nepal-districts-list"
               value={district}
-              onChange={(e) => setDistrict(e.target.value)}
-              placeholder="e.g. Kaski, Chitwan"
+              onChange={(e) => {
+                const nextValue = e.target.value;
+                districtEditedRef.current = nextValue.trim().length > 0;
+                setDistrict(nextValue);
+              }}
+              placeholder="Auto-filled from map (e.g. Kaski)"
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
+            <datalist id="nepal-districts-list">
+              {NEPAL_DISTRICTS.map((d) => (
+                <option key={d} value={d} />
+              ))}
+            </datalist>
           </div>
 
           <div>
@@ -383,7 +537,7 @@ export function FarmSelector() {
                 id="areaInput"
                 type="number"
                 step="any"
-                min="0.01"
+                min={areaUnit === 'sqm' ? '1' : '0.01'}
                 required
                 value={areaInput}
                 onChange={(e) => setAreaInput(e.target.value)}
@@ -395,6 +549,7 @@ export function FarmSelector() {
                 onChange={(e) => setAreaUnit(e.target.value as AreaUnit)}
                 className="px-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               >
+                <option value="sqm">Sq. Meters (m²)</option>
                 <option value="ropani">Ropani</option>
                 <option value="bigha">Bigha</option>
                 <option value="hectares">Hectares</option>

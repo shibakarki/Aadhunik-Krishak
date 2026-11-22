@@ -12,7 +12,13 @@ import {
   User,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { NEPAL_DISTRICTS } from '../data/nepalDistricts';
 import { supabase } from '../lib/supabase';
+
+const NAME_REGEX = /^[A-Za-z\u0900-\u097F][A-Za-z\u0900-\u097F\s.'-]{2,79}$/;
+const NEPAL_PHONE_REGEX = /^(98|97|96)\d{8}$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const PASSWORD_REGEX = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
 
 export function Register() {
   const { user, loading, signUp } = useAuth();
@@ -32,23 +38,49 @@ export function Register() {
     return <Navigate to="/" replace />;
   }
 
+  const validateForm = (): string | null => {
+    const cleanName = fullName.trim().replace(/\s+/g, ' ');
+    const cleanPhone = phone.replace(/\D/g, '');
+    const cleanDistrict = district.trim();
+    const cleanEmail = email.trim();
+
+    if (!NAME_REGEX.test(cleanName) || /(.)\1{3,}/i.test(cleanName)) {
+      return 'Please enter a valid full name (letters only, 3–80 characters).';
+    }
+
+    if (!NEPAL_PHONE_REGEX.test(cleanPhone)) {
+      return 'Phone number must be a valid 10-digit Nepal mobile number starting with 98, 97, or 96.';
+    }
+
+    if (!NEPAL_DISTRICTS.includes(cleanDistrict as (typeof NEPAL_DISTRICTS)[number])) {
+      return 'Please select a valid Nepal district.';
+    }
+
+    if (!EMAIL_REGEX.test(cleanEmail)) {
+      return 'Please enter a valid email address (e.g. farmer@example.com).';
+    }
+
+    if (!PASSWORD_REGEX.test(password)) {
+      return 'Password must be at least 8 characters and include both letters and numbers.';
+    }
+
+    return null;
+  };
+
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
     setSuccessMessage(null);
 
-    const trimmedName = fullName.trim();
-    const trimmedEmail = email.trim();
-
-    if (!trimmedName || !trimmedEmail || !password) {
-      setError('Please fill in your full name, email, and password.');
+    const validationError = validateForm();
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters long.');
-      return;
-    }
+    const trimmedName = fullName.trim().replace(/\s+/g, ' ');
+    const cleanPhone = phone.replace(/\D/g, '');
+    const trimmedEmail = email.trim().toLowerCase();
 
     setSubmitting(true);
     const { error: signUpError } = await signUp(
@@ -56,8 +88,8 @@ export function Register() {
       password,
       trimmedName,
       {
-        phone: phone.trim() || undefined,
-        district: district.trim() || undefined,
+        phone: cleanPhone,
+        district: district.trim(),
       }
     );
 
@@ -119,13 +151,13 @@ export function Register() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} noValidate className="space-y-4">
           <div>
             <label
               htmlFor="fullName"
               className="block text-sm font-medium text-slate-700 mb-1.5"
             >
-              Full Name
+              Full Name *
             </label>
             <div className="relative">
               <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -133,6 +165,7 @@ export function Register() {
                 id="fullName"
                 type="text"
                 required
+                maxLength={80}
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="Sita Gurung"
@@ -147,15 +180,20 @@ export function Register() {
                 htmlFor="phone"
                 className="block text-sm font-medium text-slate-700 mb-1.5"
               >
-                Phone
+                Phone (10 digits) *
               </label>
               <div className="relative">
                 <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   id="phone"
                   type="tel"
+                  inputMode="numeric"
+                  required
+                  maxLength={10}
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={(e) =>
+                    setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))
+                  }
                   placeholder="98XXXXXXXX"
                   className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-slate-300 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm"
                 />
@@ -167,18 +205,24 @@ export function Register() {
                 htmlFor="district"
                 className="block text-sm font-medium text-slate-700 mb-1.5"
               >
-                District
+                District *
               </label>
               <div className="relative">
-                <MapPin className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
+                <MapPin className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <select
                   id="district"
-                  type="text"
+                  required
                   value={district}
                   onChange={(e) => setDistrict(e.target.value)}
-                  placeholder="e.g. Kaski"
-                  className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-slate-300 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm"
-                />
+                  className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm"
+                >
+                  <option value="">Select district</option>
+                  {NEPAL_DISTRICTS.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
           </div>
@@ -188,7 +232,7 @@ export function Register() {
               htmlFor="email"
               className="block text-sm font-medium text-slate-700 mb-1.5"
             >
-              Email Address
+              Email Address *
             </label>
             <div className="relative">
               <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -210,7 +254,7 @@ export function Register() {
               htmlFor="password"
               className="block text-sm font-medium text-slate-700 mb-1.5"
             >
-              Password
+              Password *
             </label>
             <div className="relative">
               <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -219,10 +263,10 @@ export function Register() {
                 type="password"
                 autoComplete="new-password"
                 required
-                minLength={6}
+                minLength={8}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="At least 6 characters"
+                placeholder="Min 8 chars (letters + numbers)"
                 className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm"
               />
             </div>
