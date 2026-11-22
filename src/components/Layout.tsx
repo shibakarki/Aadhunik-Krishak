@@ -8,6 +8,7 @@ import {
   LogOut,
   MapPin,
   Menu,
+  MessageSquare,
   Plus,
   Sprout,
   Stethoscope,
@@ -36,6 +37,8 @@ const navItems = [
     end: false,
   },
   { to: '/assistant', label: 'AI Assistant', icon: Bot, end: false },
+  { to: '/assistant', label: 'AI Assistant', icon: Bot, end: false },
+  { to: '/feedback', label: 'Feedback', icon: MessageSquare, end: false },
 ];
 
 export function Layout() {
