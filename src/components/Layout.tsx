@@ -10,6 +10,7 @@ import {
   Menu,
   MessageSquare,
   Plus,
+  ShieldCheck,
   Sprout,
   Stethoscope,
   TrendingUp,
@@ -17,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useFarm } from '../context/FarmContext';
+import { isAdminEmail } from '../lib/admin';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -37,7 +39,6 @@ const navItems = [
     end: false,
   },
   { to: '/assistant', label: 'AI Assistant', icon: Bot, end: false },
-  { to: '/assistant', label: 'AI Assistant', icon: Bot, end: false },
   { to: '/feedback', label: 'Feedback', icon: MessageSquare, end: false },
 ];
 
@@ -46,6 +47,8 @@ export function Layout() {
   const { farms, activeFarm, setActiveFarm } = useFarm();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const isAdmin = isAdminEmail(user?.email);
 
   const displayName =
     profile?.full_name || user?.email?.split('@')[0] || 'Farmer';
@@ -78,6 +81,23 @@ export function Layout() {
           </NavLink>
         );
       })}
+
+      {isAdmin && (
+        <NavLink
+          to="/admin"
+          onClick={onNavigate}
+          className={({ isActive }) =>
+            `flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+              isActive
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'text-emerald-800 bg-emerald-50/70 hover:bg-emerald-100'
+            }`
+          }
+        >
+          <ShieldCheck className="w-4 h-4 shrink-0" />
+          <span>Admin Panel</span>
+        </NavLink>
+      )}
     </nav>
   );
 
