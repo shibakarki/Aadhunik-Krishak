@@ -30,6 +30,7 @@ import {
   determineAgroZone,
   generateCropActivities,
   getCurrentNepalSeason,
+  loadActiveCropCatalog,
   recommendCrops,
 } from "../services/cropEngine";
 import { fetchFarmSoil } from "../services/soilService";
@@ -76,6 +77,7 @@ export function Crops() {
 
   const [soil, setSoil] = useState<SoilData | null>(null);
   const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [cropCatalog, setCropCatalog] = useState<NepalCrop[]>([]);
   const [registeredCrops, setRegisteredCrops] = useState<RegisteredCrop[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -106,15 +108,17 @@ export function Crops() {
         ? determineAgroZone(activeFarm.elevation_m)
         : "Hill");
 
-    const [soilRes, weatherRes, cropsRes] = await Promise.allSettled([
-      fetchFarmSoil(activeFarm.latitude, activeFarm.longitude, fallbackZone),
-      fetchFarmWeather(activeFarm.latitude, activeFarm.longitude),
-      supabase
-        .from("crops")
-        .select("*")
-        .eq("farm_id", activeFarm.id)
-        .order("created_at", { ascending: false }),
-    ]);
+    const [soilRes, weatherRes, cropsRes, catalogRes] =
+      await Promise.allSettled([
+        fetchFarmSoil(activeFarm.latitude, activeFarm.longitude, fallbackZone),
+        fetchFarmWeather(activeFarm.latitude, activeFarm.longitude),
+        supabase
+          .from("crops")
+          .select("*")
+          .eq("farm_id", activeFarm.id)
+          .order("created_at", { ascending: false }),
+        loadActiveCropCatalog(),
+      ]);
 
     if (soilRes.status === "fulfilled") {
       setSoil(soilRes.value);
@@ -134,6 +138,10 @@ export function Crops() {
       }
     } else {
       setError("Failed to load registered crops.");
+    }
+
+    if (catalogRes.status === "fulfilled") {
+      setCropCatalog(catalogRes.value);
     }
 
     setLoading(false);
@@ -161,6 +169,7 @@ export function Crops() {
       weather,
       soil,
       season: selectedSeason,
+      crops: cropCatalog,
     });
     if (categoryFilter === "All") return ranked;
     return ranked.filter((rec) => rec.crop.category === categoryFilter);
@@ -171,6 +180,7 @@ export function Crops() {
     soil,
     selectedSeason,
     categoryFilter,
+    cropCatalog,
   ]);
 
   const openRegisterModal = (crop: NepalCrop) => {
@@ -234,6 +244,7 @@ export function Crops() {
       const newCrop = insertedCrop as RegisteredCrop;
       const stageActivities = generateCropActivities({
         cropKey: modalCrop.key,
+        crop: modalCrop,
         cropId: newCrop.id,
         farmId: activeFarm.id,
         userId: user.id,
