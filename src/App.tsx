@@ -10,6 +10,7 @@ import { FarmSelector } from "./pages/FarmSelector";
 import { LandIntelligence } from "./pages/LandIntelligence";
 import { Login } from "./pages/Login";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
+import { PlantDoctor } from "./pages/PlantDoctor";
 import { Register } from "./pages/Register";
 
 function App() {
@@ -33,16 +34,7 @@ function App() {
               <Route path="/land-intelligence" element={<LandIntelligence />} />
               <Route path="/crops" element={<Crops />} />
               <Route path="/calendar" element={<Calendar />} />
-              <Route
-                path="/plant-doctor"
-                element={
-                  <PlaceholderPage
-                    title="AI Plant Doctor"
-                    description="Upload leaf photos for Gemini Vision disease diagnosis and treatment."
-                    owner="Alisha"
-                  />
-                }
-              />
+              <Route path="/plant-doctor" element={<PlantDoctor />} />
               <Route
                 path="/assistant"
                 element={
