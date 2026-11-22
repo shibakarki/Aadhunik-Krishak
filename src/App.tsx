@@ -8,6 +8,7 @@ import { Calendar } from "./pages/Calendar";
 import { Crops } from "./pages/Crops";
 import { Dashboard } from "./pages/Dashboard";
 import { FarmSelector } from "./pages/FarmSelector";
+import { Feedback } from "./pages/Feedback";
 import { LandIntelligence } from "./pages/LandIntelligence";
 import { Login } from "./pages/Login";
 import { PlantDoctor } from "./pages/PlantDoctor";
@@ -36,6 +37,7 @@ function App() {
               <Route path="/calendar" element={<Calendar />} />
               <Route path="/plant-doctor" element={<PlantDoctor />} />
               <Route path="/assistant" element={<Assistant />} />
+              <Route path="/feedback" element={<Feedback />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />
