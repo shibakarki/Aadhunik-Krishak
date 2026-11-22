@@ -2,8 +2,10 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
+  ArrowRight,
   Bot,
   CalendarCheck2,
+  CheckCircle2,
   CloudSun,
   FlaskConical,
   Languages,
@@ -21,23 +23,40 @@ import { useFarm } from '../context/FarmContext';
 import {
   askFarmingAssistant,
   loadFarmAssistantContext,
+  type CalendarActionSummary,
   type ChatMessage,
   type FarmAssistantContext,
 } from '../services/assistantService';
 
 const QUICK_PROMPTS_EN = [
   'Should I irrigate my crops today or wait for rain?',
+  'Schedule irrigation tomorrow and weeding in 3 days on my calendar',
   'What fertilizer should I apply based on my soil pH?',
   'What farming tasks should I prioritize this week?',
-  'Which seasonal crops fit my farm elevation best?',
 ];
 
 const QUICK_PROMPTS_NE = [
   'आज बालीमा सिँचाइ गरूँ कि पानी पर्ने पर्खूँ?',
+  'भोलि सिँचाइ र ३ दिनपछि गोडमेल गर्ने काम क्यालेन्डरमा थप्नुहोस्',
   'मेरो माटोको pH अनुसार कुन मल प्रयोग गर्ने?',
   'यो हप्ता फार्ममा कुन काम प्राथमिकतामा राख्ने?',
-  'मेरो उचाइ र हावापानीमा कुन बाली राम्रो हुन्छ?',
 ];
+
+function formatActionLabel(item: CalendarActionSummary): string {
+  if (item.action === 'create') {
+    return `Added "${item.title}" for ${item.dueDate ?? 'upcoming'}`;
+  }
+  if (item.action === 'complete') {
+    return `Marked "${item.title}" as completed`;
+  }
+  if (item.action === 'reopen') {
+    return `Reopened "${item.title}"`;
+  }
+  if (item.action === 'reschedule') {
+    return `Rescheduled "${item.title}" to ${item.dueDate ?? 'new date'}`;
+  }
+  return `Removed "${item.title}" from calendar`;
+}
 
 export function Assistant() {
   const { user } = useAuth();
@@ -99,11 +118,12 @@ export function Assistant() {
     setSending(true);
 
     try {
-      const reply = await askFarmingAssistant({
+      const { reply, calendarActions } = await askFarmingAssistant({
         question: trimmed,
         history: historyBeforeSend,
         context,
         language,
+        userId: user?.id,
       });
 
       const assistantMessage: ChatMessage = {
@@ -111,9 +131,14 @@ export function Assistant() {
         role: 'assistant',
         content: reply,
         timestamp: new Date().toISOString(),
+        calendarActions,
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
+
+      if (calendarActions.some((a) => a.status === 'applied')) {
+        await refreshContext();
+      }
     } catch (err) {
       setError(
         err instanceof Error
@@ -132,6 +157,7 @@ export function Assistant() {
 
   const quickPrompts =
     language === 'ne' ? QUICK_PROMPTS_NE : QUICK_PROMPTS_EN;
+  const pendingTasksCount = context.activities.filter((a) => !a.completed).length;
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-5">
@@ -146,8 +172,8 @@ export function Assistant() {
             Farm-Aware Agricultural Advisor
           </h1>
           <p className="mt-1 text-sm text-slate-600">
-            Ask anything about irrigation, fertilizer, pests, or seasonal
-            planning—powered by your live farm weather, soil, and crop data.
+            Ask farming questions or tell the assistant to add, complete, or
+            reschedule tasks directly on your farm calendar.
           </p>
         </div>
 
@@ -248,16 +274,19 @@ export function Assistant() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2.5 rounded-xl bg-slate-50 px-3 py-2 text-xs">
+            <Link
+              to="/calendar"
+              className="flex items-center gap-2.5 rounded-xl bg-slate-50 px-3 py-2 text-xs transition hover:bg-emerald-50"
+            >
               <CalendarCheck2 className="h-4 w-4 shrink-0 text-sky-600" />
               <div className="min-w-0">
                 <div className="text-[11px] text-slate-500">Pending Tasks</div>
                 <div className="truncate font-medium text-slate-800">
-                  {context.activities.length} upcoming{' '}
-                  {context.activities.length === 1 ? 'task' : 'tasks'}
+                  {pendingTasksCount} upcoming{' '}
+                  {pendingTasksCount === 1 ? 'task' : 'tasks'}
                 </div>
               </div>
-            </div>
+            </Link>
           </div>
         </div>
       ) : (
@@ -265,9 +294,8 @@ export function Assistant() {
           <div className="flex items-center gap-2">
             <MapPin className="h-4 w-4 shrink-0 text-amber-700" />
             <span>
-              No active farm selected. You can still ask general questions, or
-              add/select a farm for live weather, soil, and crop-specific
-              advice.
+              No active farm selected. Select or add a farm to enable live
+              weather/soil context and direct AI calendar scheduling.
             </span>
           </div>
           <Link
@@ -289,13 +317,13 @@ export function Assistant() {
               </div>
               <h2 className="mt-3 text-base font-semibold text-slate-900">
                 {language === 'ne'
-                  ? 'आफ्नो फार्मको बारेमा जे पनि सोध्नुहोस्'
-                  : 'Ask Anything About Your Farm'}
+                  ? 'सोध्नुहोस् वा क्यालेन्डर अपडेट गर्नुहोस्'
+                  : 'Ask Advice or Schedule Calendar Tasks'}
               </h2>
               <p className="mt-1 max-w-md text-xs text-slate-500">
                 {language === 'ne'
-                  ? 'तलका द्रुत प्रश्नहरू छान्नुहोस् वा आफ्नै प्रश्न लेख्नुहोस्।'
-                  : 'Try one of the quick questions below or type your own question.'}
+                  ? 'तलका द्रुत प्रश्नहरू छान्नुहोस् वा "भोलि सिँचाइ गर्ने काम थप्नुहोस्" जस्ता निर्देशन दिनुहोस्।'
+                  : 'Try a quick prompt below, or type something like "Add tomato irrigation tomorrow and mark weeding done".'}
               </p>
 
               <div className="mt-5 grid w-full max-w-2xl gap-2 sm:grid-cols-2">
@@ -315,6 +343,10 @@ export function Assistant() {
             <>
               {messages.map((msg) => {
                 const isUser = msg.role === 'user';
+                const hasAppliedCalendarChanges = Boolean(
+                  msg.calendarActions?.some((a) => a.status === 'applied')
+                );
+
                 return (
                   <div
                     key={msg.id}
@@ -328,14 +360,60 @@ export function Assistant() {
                       </div>
                     )}
 
-                    <div
-                      className={`max-w-[82%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-line ${
-                        isUser
-                          ? 'bg-emerald-600 text-white'
-                          : 'border border-slate-200 bg-slate-50 text-slate-800'
-                      }`}
-                    >
-                      {msg.content}
+                    <div className="max-w-[82%] space-y-2">
+                      <div
+                        className={`rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-line ${
+                          isUser
+                            ? 'bg-emerald-600 text-white'
+                            : 'border border-slate-200 bg-slate-50 text-slate-800'
+                        }`}
+                      >
+                        {msg.content}
+                      </div>
+
+                      {msg.calendarActions &&
+                        msg.calendarActions.length > 0 && (
+                          <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs">
+                            <div className="flex items-center justify-between gap-2 font-semibold text-emerald-900">
+                              <span className="inline-flex items-center gap-1.5">
+                                <CalendarCheck2 className="h-4 w-4 text-emerald-600" />
+                                Calendar Sync
+                              </span>
+                              {hasAppliedCalendarChanges && (
+                                <Link
+                                  to="/calendar"
+                                  className="inline-flex items-center gap-1 font-semibold text-emerald-700 hover:text-emerald-900"
+                                >
+                                  View in Calendar
+                                  <ArrowRight className="h-3.5 w-3.5" />
+                                </Link>
+                              )}
+                            </div>
+
+                            <ul className="mt-2 space-y-1">
+                              {msg.calendarActions.map((item, idx) => (
+                                <li
+                                  key={`${msg.id}-action-${idx}`}
+                                  className={`flex items-start gap-1.5 ${
+                                    item.status === 'applied'
+                                      ? 'text-emerald-800'
+                                      : 'text-amber-800'
+                                  }`}
+                                >
+                                  {item.status === 'applied' ? (
+                                    <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                                  ) : (
+                                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                                  )}
+                                  <span>
+                                    {formatActionLabel(item)}
+                                    {item.note ? ` — ${item.note}` : ''}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
                     </div>
 
                     {isUser && (
@@ -399,8 +477,8 @@ export function Assistant() {
             onChange={(e) => setInput(e.target.value)}
             placeholder={
               language === 'ne'
-                ? 'यहाँ आफ्नो कृषि प्रश्न लेख्नुहोस्...'
-                : 'Ask about irrigation, crops, pests, or soil...'
+                ? 'प्रश्न सोध्नुहोस् वा क्यालेन्डरमा काम थप्न भन्नुहोस्...'
+                : 'Ask advice or say "Schedule irrigation tomorrow"...'
             }
             disabled={sending}
             className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 focus:outline-none disabled:bg-slate-50"

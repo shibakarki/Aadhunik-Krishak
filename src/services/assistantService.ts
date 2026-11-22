@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase';
 import { fetchFarmSoil } from './soilService';
 import { fetchFarmWeather } from './weatherService';
 import type {
+  ActivityType,
   DiseaseScan,
   Farm,
   FarmingActivity,
@@ -10,11 +11,21 @@ import type {
   WeatherData,
 } from '../types';
 
+export interface CalendarActionSummary {
+  action: 'create' | 'complete' | 'reopen' | 'reschedule' | 'delete';
+  title: string;
+  dueDate?: string;
+  activityType?: ActivityType;
+  status: 'applied' | 'skipped';
+  note?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  calendarActions?: CalendarActionSummary[];
 }
 
 export interface FarmAssistantContext {
@@ -26,6 +37,21 @@ export interface FarmAssistantContext {
   recentScans: DiseaseScan[];
 }
 
+interface RawCalendarAction {
+  action?: string;
+  task_id?: string | null;
+  crop_id?: string | null;
+  title?: string;
+  description?: string | null;
+  activity_type?: string;
+  due_date?: string;
+}
+
+export interface AssistantReplyResult {
+  reply: string;
+  calendarActions: CalendarActionSummary[];
+}
+
 const GEMINI_MODELS = [
   'gemini-3.7-flash',
   'gemini-3.5-flash-lite',
@@ -34,6 +60,63 @@ const GEMINI_MODELS = [
   'gemini-flash-latest',
   'gemma-4-26b-a4b-it',
 ] as const;
+
+const VALID_ACTIVITY_TYPES: readonly ActivityType[] = [
+  'sowing',
+  'irrigation',
+  'fertilizer',
+  'weeding',
+  'pest_check',
+  'harvest',
+];
+
+function getLocalIsoDate(offsetDays = 0): string {
+  const date = new Date();
+  date.setDate(date.getDate() + offsetDays);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeActivityType(
+  rawType?: string,
+  titleHint?: string
+): ActivityType {
+  const normalized = String(rawType ?? '')
+    .trim()
+    .toLowerCase();
+  if (VALID_ACTIVITY_TYPES.includes(normalized as ActivityType)) {
+    return normalized as ActivityType;
+  }
+
+  const text = `${normalized} ${titleHint ?? ''}`.toLowerCase();
+  if (text.includes('irrigat') || text.includes('water')) return 'irrigation';
+  if (
+    text.includes('fertiliz') ||
+    text.includes('urea') ||
+    text.includes('compost') ||
+    text.includes('manure') ||
+    text.includes('dap') ||
+    text.includes('potash')
+  ) {
+    return 'fertilizer';
+  }
+  if (text.includes('sow') || text.includes('plant') || text.includes('seed')) {
+    return 'sowing';
+  }
+  if (text.includes('weed') || text.includes('hoe')) return 'weeding';
+  if (text.includes('harvest') || text.includes('pick')) return 'harvest';
+  return 'pest_check';
+}
+
+function normalizeIsoDate(rawDate?: string): string {
+  const trimmed = String(rawDate ?? '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return trimmed;
+  }
+  return getLocalIsoDate(1);
+}
 
 export async function loadFarmAssistantContext(
   farm: Farm | null,
@@ -64,9 +147,9 @@ export async function loadFarmAssistantContext(
         .from('activities')
         .select('*')
         .eq('farm_id', farm.id)
-        .eq('completed', false)
+        .order('completed', { ascending: true })
         .order('due_date', { ascending: true })
-        .limit(8),
+        .limit(15),
       userId
         ? supabase
             .from('disease_scans')
@@ -109,15 +192,43 @@ function buildFarmContextSummary(
   context: FarmAssistantContext,
   language: 'en' | 'ne'
 ): string {
+  const today = getLocalIsoDate(0);
+  const tomorrow = getLocalIsoDate(1);
+
   const languageRule =
     language === 'ne'
       ? 'Respond in clear, natural Nepali (Devanagari script) using simple farmer-friendly terms.'
       : 'Respond in clear, practical English with simple farmer-friendly bullet points.';
 
+  const calendarInstructions = `CALENDAR ACTION CAPABILITY:
+Today's date is ${today} (tomorrow is ${tomorrow}).
+If—and ONLY if—the user explicitly asks to add, schedule, create, complete/mark done, reopen, reschedule/move, or delete farming calendar tasks, append a fenced block AT THE VERY END of your response using this EXACT format:
+
+\`\`\`calendar_actions
+[
+  {
+    "action": "create | complete | reopen | reschedule | delete",
+    "task_id": "existing task id (for complete/reopen/reschedule/delete, or null for create)",
+    "crop_id": "matching crop id from Active Crops below, or null",
+    "title": "Clear short task title",
+    "description": "Optional brief how-to note or null",
+    "activity_type": "sowing | irrigation | fertilizer | weeding | pest_check | harvest",
+    "due_date": "YYYY-MM-DD"
+  }
+]
+\`\`\`
+
+Rules for \`calendar_actions\`:
+- Do NOT include \`\`\`calendar_actions\`\`\` for normal questions unless the user asks to update/schedule/complete tasks on the calendar.
+- Always convert relative dates like "today", "tomorrow", "in 3 days", or "next Friday" into exact YYYY-MM-DD dates using Today = ${today}.
+- If no farm is selected, politely tell the user to select or add a farm first before saving calendar tasks, and omit \`calendar_actions\`.`;
+
   if (!context.farm) {
     return `You are Aadhunik Krishak AI, an expert Nepali agricultural advisor.
-The user has not selected a specific farm yet, so give helpful Nepal-relevant advice and remind them they can add/select a farm for hyper-local soil and weather recommendations.
-${languageRule}`;
+The user has not selected a specific farm yet, so give helpful Nepal-relevant advice and remind them they can add/select a farm for hyper-local soil, weather, and calendar scheduling.
+${languageRule}
+
+${calendarInstructions}`;
   }
 
   const { farm, weather, soil, crops, activities, recentScans } = context;
@@ -142,7 +253,7 @@ Next 3 days forecast: ${weather.daily
       ? crops
           .map(
             (c) =>
-              `${c.crop_name}${c.variety ? ` (${c.variety})` : ''} — planted ${c.sowing_date}, expected harvest ${c.expected_harvest_date}, area ${c.area_hectares} ha`
+              `[crop_id: ${c.id}] ${c.crop_name}${c.variety ? ` (${c.variety})` : ''} — planted ${c.sowing_date}, expected harvest ${c.expected_harvest_date}, area ${c.area_hectares} ha`
           )
           .join('; ')
       : 'No active registered crops yet.';
@@ -150,9 +261,12 @@ Next 3 days forecast: ${weather.daily
   const tasksSummary =
     activities.length > 0
       ? activities
-          .map((a) => `${a.title} (${a.activity_type}, due ${a.due_date})`)
+          .map(
+            (a) =>
+              `[task_id: ${a.id}] ${a.title} (${a.activity_type}, due ${a.due_date}, ${a.completed ? 'completed' : 'pending'})`
+          )
           .join('; ')
-      : 'No pending calendar tasks.';
+      : 'No calendar tasks yet.';
 
   const scansSummary =
     recentScans.length > 0
@@ -172,13 +286,209 @@ LIVE FARM CONTEXT:
 - Soil: ${soilSummary}
 - Weather: ${weatherSummary}
 - Active Crops: ${cropsSummary}
-- Upcoming Tasks: ${tasksSummary}
+- Calendar Tasks: ${tasksSummary}
 - Recent Plant Doctor Scans: ${scansSummary}
 
 GUIDELINES:
 1. Base your answers directly on the farm's real weather, soil, elevation, crops, and tasks above whenever relevant.
 2. Give concise, practical, actionable steps suitable for farming in Nepal (include local agro-vet / organic options when helpful).
-3. ${languageRule}`;
+3. ${languageRule}
+
+${calendarInstructions}`;
+}
+
+function parseAssistantResponse(rawText: string): {
+  cleanReply: string;
+  rawActions: RawCalendarAction[];
+} {
+  const blockRegex = /```calendar_actions\s*([\s\S]*?)```/i;
+  const match = rawText.match(blockRegex);
+
+  if (!match) {
+    return { cleanReply: rawText.trim(), rawActions: [] };
+  }
+
+  const cleanReply = rawText.replace(blockRegex, '').trim();
+  const jsonText = (match[1] ?? '').trim();
+
+  try {
+    const parsed = JSON.parse(jsonText) as unknown;
+    const rawActions = Array.isArray(parsed)
+      ? (parsed as RawCalendarAction[])
+      : [];
+    return { cleanReply, rawActions };
+  } catch (err) {
+    console.warn('Could not parse calendar_actions block:', err);
+    return { cleanReply, rawActions: [] };
+  }
+}
+
+function findMatchingTask(
+  item: RawCalendarAction,
+  activities: FarmingActivity[]
+): FarmingActivity | undefined {
+  if (item.task_id) {
+    const byId = activities.find((a) => a.id === item.task_id);
+    if (byId) return byId;
+  }
+  const searchTitle = String(item.title ?? '')
+    .trim()
+    .toLowerCase();
+  if (!searchTitle) return undefined;
+
+  return activities.find((a) => a.title.toLowerCase().includes(searchTitle));
+}
+
+async function executeCalendarActions(params: {
+  rawActions: RawCalendarAction[];
+  context: FarmAssistantContext;
+  userId?: string;
+}): Promise<CalendarActionSummary[]> {
+  const { rawActions, context, userId } = params;
+  if (rawActions.length === 0) return [];
+
+  if (!context.farm || !userId) {
+    return rawActions.map((item) => ({
+      action: 'create',
+      title: String(item.title ?? 'Calendar Task'),
+      status: 'skipped',
+      note: 'Select a farm and sign in to update the calendar.',
+    }));
+  }
+
+  const validCropIds = new Set(context.crops.map((c) => c.id));
+  const results: CalendarActionSummary[] = [];
+
+  for (const item of rawActions) {
+    const actionType = String(item.action ?? '')
+      .trim()
+      .toLowerCase();
+
+    if (actionType === 'create') {
+      const title = String(item.title ?? '').trim() || 'Farm Task';
+      const dueDate = normalizeIsoDate(item.due_date);
+      const activityType = normalizeActivityType(item.activity_type, title);
+      const cropId =
+        item.crop_id && validCropIds.has(item.crop_id)
+          ? item.crop_id
+          : (context.crops[0]?.id ?? null);
+
+      const { error } = await supabase.from('activities').insert({
+        crop_id: cropId,
+        farm_id: context.farm.id,
+        user_id: userId,
+        title,
+        description: item.description ? String(item.description).trim() : null,
+        activity_type: activityType,
+        due_date: dueDate,
+        completed: false,
+        completed_at: null,
+      });
+
+      results.push({
+        action: 'create',
+        title,
+        dueDate,
+        activityType,
+        status: error ? 'skipped' : 'applied',
+        note: error
+          ? error.message.includes('crop_id')
+            ? 'Please register a crop on /crops first so calendar tasks can be linked to it.'
+            : error.message
+          : undefined,
+      });
+      continue;
+    }
+
+    if (actionType === 'complete' || actionType === 'reopen') {
+      const target = findMatchingTask(item, context.activities);
+      if (!target) {
+        results.push({
+          action: actionType,
+          title: String(item.title ?? 'Task'),
+          status: 'skipped',
+          note: 'Could not find a matching task on your calendar.',
+        });
+        continue;
+      }
+
+      const nextCompleted = actionType === 'complete';
+      const { error } = await supabase
+        .from('activities')
+        .update({
+          completed: nextCompleted,
+          completed_at: nextCompleted ? new Date().toISOString() : null,
+        })
+        .eq('id', target.id)
+        .eq('user_id', userId);
+
+      results.push({
+        action: actionType,
+        title: target.title,
+        dueDate: target.due_date,
+        status: error ? 'skipped' : 'applied',
+        note: error ? error.message : undefined,
+      });
+      continue;
+    }
+
+    if (actionType === 'reschedule') {
+      const target = findMatchingTask(item, context.activities);
+      if (!target) {
+        results.push({
+          action: 'reschedule',
+          title: String(item.title ?? 'Task'),
+          status: 'skipped',
+          note: 'Could not find a matching task to reschedule.',
+        });
+        continue;
+      }
+
+      const newDate = normalizeIsoDate(item.due_date);
+      const { error } = await supabase
+        .from('activities')
+        .update({ due_date: newDate })
+        .eq('id', target.id)
+        .eq('user_id', userId);
+
+      results.push({
+        action: 'reschedule',
+        title: target.title,
+        dueDate: newDate,
+        status: error ? 'skipped' : 'applied',
+        note: error ? error.message : undefined,
+      });
+      continue;
+    }
+
+    if (actionType === 'delete') {
+      const target = findMatchingTask(item, context.activities);
+      if (!target) {
+        results.push({
+          action: 'delete',
+          title: String(item.title ?? 'Task'),
+          status: 'skipped',
+          note: 'Could not find a matching task to delete.',
+        });
+        continue;
+      }
+
+      const { error } = await supabase
+        .from('activities')
+        .delete()
+        .eq('id', target.id)
+        .eq('user_id', userId);
+
+      results.push({
+        action: 'delete',
+        title: target.title,
+        status: error ? 'skipped' : 'applied',
+        note: error ? error.message : undefined,
+      });
+    }
+  }
+
+  return results;
 }
 
 export async function askFarmingAssistant(params: {
@@ -186,7 +496,8 @@ export async function askFarmingAssistant(params: {
   history: ChatMessage[];
   context: FarmAssistantContext;
   language: 'en' | 'ne';
-}): Promise<string> {
+  userId?: string;
+}): Promise<AssistantReplyResult> {
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY?.trim();
   if (!apiKey || apiKey === 'your-gemini-api-key') {
     throw new Error(
@@ -206,7 +517,7 @@ export async function askFarmingAssistant(params: {
       role: 'model',
       parts: [
         {
-          text: 'Understood. I have the live farm context and will provide tailored Nepali agricultural advice.',
+          text: 'Understood. I have the live farm context and can answer questions or update calendar tasks when requested.',
         },
       ],
     },
@@ -238,7 +549,7 @@ export async function askFarmingAssistant(params: {
         body: JSON.stringify({
           contents,
           generationConfig: {
-            temperature: 0.4,
+            temperature: 0.35,
           },
         }),
       });
@@ -269,19 +580,33 @@ export async function askFarmingAssistant(params: {
         }>;
       };
 
-      const reply =
+      const rawText =
         payload.candidates?.[0]?.content?.parts
           ?.filter((part) => !part.thought)
           .map((part) => part.text ?? '')
           .join('')
           .trim() ?? '';
 
-      if (!reply) {
+      if (!rawText) {
         lastError = `Model ${model} returned an empty response.`;
         continue;
       }
 
-      return reply;
+      const { cleanReply, rawActions } = parseAssistantResponse(rawText);
+      const calendarActions = await executeCalendarActions({
+        rawActions,
+        context: params.context,
+        userId: params.userId,
+      });
+
+      return {
+        reply:
+          cleanReply ||
+          (calendarActions.length > 0
+            ? 'Your farming calendar has been updated.'
+            : 'Done.'),
+        calendarActions,
+      };
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         lastError = `Model ${model} timed out.`;
