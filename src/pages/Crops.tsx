@@ -1,4 +1,3 @@
-
 import {
   useCallback,
   useEffect,
@@ -16,6 +15,7 @@ import {
   ChevronUp,
   Droplets,
   Filter,
+  FlaskConical,
   Leaf,
   Loader2,
   MapPin,
@@ -23,6 +23,7 @@ import {
   Sprout,
   X,
 } from "lucide-react";
+import { SoilReportModal } from "../components/SoilReportModal";
 import { useAuth } from "../context/AuthContext";
 import { useFarm } from "../context/FarmContext";
 import {
@@ -42,7 +43,7 @@ import {
   loadActiveCropCatalog,
   recommendCrops,
 } from "../services/cropEngine";
-import { fetchFarmSoil } from "../services/soilService";
+import { resolveFarmSoil } from "../services/soilService";
 import { fetchFarmWeather } from "../services/weatherService";
 import type {
   AgroZone,
@@ -165,6 +166,7 @@ export function Crops() {
   const [registeredCrops, setRegisteredCrops] = useState<RegisteredCrop[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [showSoilModal, setShowSoilModal] = useState<boolean>(false);
 
   const [selectedSeason, setSelectedSeason] = useState<NepalSeason>(() =>
     getCurrentNepalSeason(),
@@ -194,7 +196,7 @@ export function Crops() {
 
     const [soilRes, weatherRes, cropsRes, catalogRes] =
       await Promise.allSettled([
-        fetchFarmSoil(activeFarm.latitude, activeFarm.longitude, fallbackZone),
+        resolveFarmSoil(activeFarm, fallbackZone),
         fetchFarmWeather(activeFarm.latitude, activeFarm.longitude),
         supabase
           .from("crops")
@@ -239,6 +241,7 @@ export function Crops() {
     activeFarm?.longitude,
     activeFarm?.agro_zone,
     activeFarm?.elevation_m,
+    activeFarm?.soil_report,
     lang,
   ]);
 
@@ -246,7 +249,7 @@ export function Crops() {
     if (activeFarm) {
       void loadFarmCropContext();
     }
-  }, [activeFarm?.id, loadFarmCropContext]);
+  }, [activeFarm?.id, activeFarm?.soil_report, loadFarmCropContext]);
 
   const effectiveElevation =
     activeFarm?.elevation_m ?? weather?.elevationM ?? 1300;
@@ -446,20 +449,51 @@ export function Crops() {
               ? "बाली सिफारिस तथा दर्ता"
               : "Crop Recommendations & Registration"}
           </h1>
-          <p className="mt-1 text-sm text-slate-600">
-            {lang === "ne" ? "खेत: " : "Ranked for "}
-            <span className="font-medium">{activeFarm.name}</span> (
-            {translateAgroZone(currentZone, lang)}{" "}
-            {lang === "ne" ? "क्षेत्र" : "zone"} ·{" "}
-            {Math.round(effectiveElevation)}
-            {lang === "ne" ? " मि." : "m"}
-            {soil ? ` · pH ${soil.ph}` : ""}
-            {weather ? ` · ${weather.currentTempC}°C` : ""})
-          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+            <span>
+              {lang === "ne" ? "खेत: " : "Ranked for "}
+              <span className="font-medium">{activeFarm.name}</span> (
+              {translateAgroZone(currentZone, lang)}{" "}
+              {lang === "ne" ? "क्षेत्र" : "zone"} ·{" "}
+              {Math.round(effectiveElevation)}
+              {lang === "ne" ? " मि." : "m"}
+              {soil ? ` · pH ${soil.ph}` : ""}
+              {weather ? ` · ${weather.currentTempC}°C` : ""})
+            </span>
+            {soil && (
+              <span
+                className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${
+                  soil.source === "Lab Soil Report"
+                    ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+                    : "border-slate-200 bg-slate-100 text-slate-600"
+                }`}
+              >
+                {soil.source === "Lab Soil Report"
+                  ? lang === "ne"
+                    ? "प्रयोगशाला माटो रिपोर्ट सक्रिय"
+                    : "Using Lab Soil Report"
+                  : soil.source}
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           <LanguageToggle />
+          <button
+            type="button"
+            onClick={() => setShowSoilModal(true)}
+            className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 shadow-sm hover:bg-indigo-100 cursor-pointer"
+          >
+            <FlaskConical className="h-4 w-4" />
+            {activeFarm.soil_report
+              ? lang === "ne"
+                ? "माटो रिपोर्ट सम्पादन"
+                : "Edit Soil Report"
+              : lang === "ne"
+                ? "माटो रिपोर्ट अपलोड"
+                : "Upload Soil Report"}
+          </button>
           <Link
             to="/calendar"
             className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
@@ -964,6 +998,18 @@ export function Crops() {
           </div>
         </div>
       )}
+
+      {/* Soil Test Report Upload Modal */}
+      <SoilReportModal
+        isOpen={showSoilModal}
+        farm={activeFarm}
+        currentSoil={soil}
+        onClose={() => setShowSoilModal(false)}
+        onSaved={(savedSoil) => setSoil(savedSoil)}
+        onReset={() => {
+          void loadFarmCropContext();
+        }}
+      />
     </div>
   );
 }
