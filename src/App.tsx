@@ -12,6 +12,7 @@ import { LandIntelligence } from "./pages/LandIntelligence";
 import { Login } from "./pages/Login";
 import { PlantDoctor } from "./pages/PlantDoctor";
 import { Register } from "./pages/Register";
+import { MarketPrice } from "./pages/MarketPrice";
 
 function App() {
   return (
@@ -36,6 +37,7 @@ function App() {
               <Route path="/calendar" element={<Calendar />} />
               <Route path="/plant-doctor" element={<PlantDoctor />} />
               <Route path="/assistant" element={<Assistant />} />
+              <Route path="/market-price" element={<MarketPrice />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />

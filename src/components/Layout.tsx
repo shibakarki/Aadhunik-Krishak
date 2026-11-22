@@ -11,6 +11,7 @@ import {
   Plus,
   Sprout,
   Stethoscope,
+  TrendingUp,
   X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -27,6 +28,7 @@ const navItems = [
   },
   { to: '/crops', label: 'Crops', icon: Sprout, end: false },
   { to: '/calendar', label: 'Calendar', icon: Calendar, end: false },
+   { to: '/market-price', label: 'Market Price', icon: TrendingUp, end: false },
   {
     to: '/plant-doctor',
     label: 'Plant Doctor',
