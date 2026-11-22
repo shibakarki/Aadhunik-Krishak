@@ -1,8 +1,10 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { AdminRoute } from "./components/AdminRoute";
 import { Layout } from "./components/Layout";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AuthProvider } from "./context/AuthContext";
 import { FarmProvider } from "./context/FarmContext";
+import { Admin } from "./pages/Admin";
 import { Assistant } from "./pages/Assistant";
 import { Calendar } from "./pages/Calendar";
 import { Crops } from "./pages/Crops";
@@ -38,6 +40,14 @@ function App() {
               <Route path="/plant-doctor" element={<PlantDoctor />} />
               <Route path="/assistant" element={<Assistant />} />
               <Route path="/feedback" element={<Feedback />} />
+              <Route
+                path="/admin"
+                element={
+                  <AdminRoute>
+                    <Admin />
+                  </AdminRoute>
+                }
+              />
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />
