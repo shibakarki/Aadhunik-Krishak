@@ -4,8 +4,10 @@ import L from 'leaflet';
 import {
   AlertCircle,
   CheckCircle2,
+  Globe,
   Loader2,
   LocateFixed,
+  Map as MapIcon,
   MapPin,
   Mountain,
   Ruler,
@@ -17,8 +19,26 @@ import { determineAgroZone } from '../services/cropEngine';
 import { fetchFarmWeather } from '../services/weatherService';
 
 type AreaUnit = 'hectares' | 'ropani' | 'bigha';
+type MapType = 'street' | 'satellite';
 
 const NEPAL_CENTER: [number, number] = [28.3949, 84.124];
+
+const TILE_LAYERS: Record<
+  MapType,
+  { url: string; attribution: string; maxZoom: number }
+> = {
+  street: {
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; OpenStreetMap contributors',
+    maxZoom: 19,
+  },
+  satellite: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution:
+      'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics',
+    maxZoom: 19,
+  },
+};
 
 const pinIcon = L.divIcon({
   className: '',
@@ -40,8 +60,10 @@ export function FarmSelector() {
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
 
+  const [mapType, setMapType] = useState<MapType>('street');
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
 
@@ -68,19 +90,16 @@ export function FarmSelector() {
     }
 
     if (zoomToLocation) {
-      map.setView([lat, lng], 13);
+      map.setView([lat, lng], 15);
     }
   };
 
+  // Initialize Leaflet map once
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
     const map = L.map(mapContainerRef.current).setView(NEPAL_CENTER, 7);
     mapRef.current = map;
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors',
-    }).addTo(map);
 
     map.on('click', (event: L.LeafletMouseEvent) => {
       placeMarker(event.latlng.lat, event.latlng.lng);
@@ -89,9 +108,28 @@ export function FarmSelector() {
     return () => {
       map.remove();
       mapRef.current = null;
+      tileLayerRef.current = null;
       markerRef.current = null;
     };
   }, []);
+
+  // Swap Street <-> Satellite tile layer without losing marker or zoom
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (tileLayerRef.current) {
+      map.removeLayer(tileLayerRef.current);
+    }
+
+    const config = TILE_LAYERS[mapType];
+    const nextLayer = L.tileLayer(config.url, {
+      attribution: config.attribution,
+      maxZoom: config.maxZoom,
+    }).addTo(map);
+
+    tileLayerRef.current = nextLayer;
+  }, [mapType]);
 
   const handleUseMyLocation = () => {
     setError(null);
@@ -230,23 +268,62 @@ export function FarmSelector() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Leaflet Map */}
         <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
-            <span className="text-sm font-semibold text-slate-800 inline-flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-emerald-600" />
-              Interactive Farm Map
-            </span>
-            {latitude !== null && longitude !== null ? (
-              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                Pinned: {latitude}, {longitude}
+          <div className="px-4 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className="text-sm font-semibold text-slate-800 inline-flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-emerald-600" />
+                Interactive Farm Map
               </span>
-            ) : (
-              <span className="text-xs text-slate-500">
-                Click on the map to drop a pin
-              </span>
-            )}
+
+              {latitude !== null && longitude !== null ? (
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Pinned: {latitude}, {longitude}
+                </span>
+              ) : (
+                <span className="text-xs text-slate-500">
+                  Click on the map to drop a pin
+                </span>
+              )}
+            </div>
+
+            {/* Street / Satellite Switcher */}
+            <div
+              role="group"
+              aria-label="Map layer switcher"
+              className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200"
+            >
+              <button
+                type="button"
+                onClick={() => setMapType('street')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                  mapType === 'street'
+                    ? 'bg-white text-emerald-700 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <MapIcon className="w-3.5 h-3.5" />
+                Street
+              </button>
+              <button
+                type="button"
+                onClick={() => setMapType('satellite')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                  mapType === 'satellite'
+                    ? 'bg-white text-emerald-700 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Globe className="w-3.5 h-3.5" />
+                Satellite
+              </button>
+            </div>
           </div>
-          <div ref={mapContainerRef} className="w-full h-[380px] sm:h-[440px] z-0" />
+
+          <div
+            ref={mapContainerRef}
+            className="w-full h-[380px] sm:h-[440px] z-0"
+          />
         </div>
 
         {/* Farm Details Form */}
