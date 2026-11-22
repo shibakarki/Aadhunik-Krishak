@@ -1,13 +1,76 @@
 import { NEPAL_CROPS } from '../data/nepalCrops';
+import { supabase } from '../lib/supabase';
 import type {
   AgroZone,
   CropRecommendation,
+  CropStageTemplate,
   FarmingActivity,
   NepalCrop,
   NepalSeason,
   SoilData,
+  WaterRequirement,
   WeatherData,
 } from '../types';
+
+interface CropCatalogDbRow {
+  key: string;
+  name: string;
+  nepali_name: string;
+  category: NepalCrop['category'];
+  agro_zones: AgroZone[];
+  seasons: NepalSeason[];
+  min_elevation_m: number;
+  max_elevation_m: number;
+  min_temp_c: number;
+  max_temp_c: number;
+  ideal_ph_min: number;
+  ideal_ph_max: number;
+  water_requirement: WaterRequirement;
+  growth_days: number;
+  fertilizer_guide: string;
+  varieties: string[];
+  stages: CropStageTemplate[];
+}
+
+let activeCatalogCache: NepalCrop[] | null = null;
+
+export async function loadActiveCropCatalog(): Promise<NepalCrop[]> {
+  try {
+    const { data, error } = await supabase
+      .from('crop_catalog')
+      .select('*')
+      .order('name', { ascending: true });
+
+    if (error || !data || data.length === 0) {
+      return NEPAL_CROPS;
+    }
+
+    const mapped: NepalCrop[] = (data as CropCatalogDbRow[]).map((row) => ({
+      key: row.key,
+      name: row.name,
+      nepaliName: row.nepali_name,
+      category: row.category,
+      agroZones: row.agro_zones ?? [],
+      seasons: row.seasons ?? [],
+      minElevationM: Number(row.min_elevation_m),
+      maxElevationM: Number(row.max_elevation_m),
+      minTempC: Number(row.min_temp_c),
+      maxTempC: Number(row.max_temp_c),
+      idealPhMin: Number(row.ideal_ph_min),
+      idealPhMax: Number(row.ideal_ph_max),
+      waterRequirement: row.water_requirement,
+      growthDays: Number(row.growth_days),
+      fertilizerGuide: row.fertilizer_guide,
+      varieties: row.varieties ?? [],
+      stages: Array.isArray(row.stages) ? row.stages : [],
+    }));
+
+    activeCatalogCache = mapped;
+    return mapped;
+  } catch {
+    return NEPAL_CROPS;
+  }
+}
 
 export function determineAgroZone(elevationM: number): AgroZone {
   if (elevationM < 500) return 'Terai';
@@ -22,8 +85,16 @@ export function getCurrentNepalSeason(date: Date = new Date()): NepalSeason {
   return 'Winter'; // Oct - Feb
 }
 
-export function getCropByKey(cropKey: string): NepalCrop | undefined {
-  return NEPAL_CROPS.find((c) => c.key === cropKey);
+export function getCropByKey(
+  cropKey: string,
+  crops?: NepalCrop[]
+): NepalCrop | undefined {
+  const source =
+    crops && crops.length > 0 ? crops : (activeCatalogCache ?? NEPAL_CROPS);
+  return (
+    source.find((c) => c.key === cropKey) ??
+    NEPAL_CROPS.find((c) => c.key === cropKey)
+  );
 }
 
 export function addDaysToDate(dateStr: string, days: number): string {
@@ -37,14 +108,18 @@ export function recommendCrops(params: {
   weather?: WeatherData | null;
   soil?: SoilData | null;
   season?: NepalSeason;
+  crops?: NepalCrop[];
 }): CropRecommendation[] {
-  const { elevationM, weather, soil } = params;
+  const { elevationM, weather, soil, crops } = params;
+  const catalog =
+    crops && crops.length > 0 ? crops : (activeCatalogCache ?? NEPAL_CROPS);
+
   const agroZone = determineAgroZone(elevationM);
   const season = params.season ?? getCurrentNepalSeason();
   const tempC = weather?.currentTempC ?? null;
   const ph = soil?.ph ?? null;
 
-  const recommendations: CropRecommendation[] = NEPAL_CROPS.map((crop) => {
+  const recommendations: CropRecommendation[] = catalog.map((crop) => {
     let score = 0;
     const reasons: string[] = [];
 
@@ -57,7 +132,9 @@ export function recommendCrops(params: {
     // 2. Elevation range (20 pts)
     if (elevationM >= crop.minElevationM && elevationM <= crop.maxElevationM) {
       score += 20;
-      reasons.push(`Elevation (${Math.round(elevationM)}m) is within optimal range`);
+      reasons.push(
+        `Elevation (${Math.round(elevationM)}m) is within optimal range`
+      );
     } else if (
       elevationM >= crop.minElevationM - 250 &&
       elevationM <= crop.maxElevationM + 250
@@ -75,19 +152,23 @@ export function recommendCrops(params: {
     if (tempC !== null) {
       if (tempC >= crop.minTempC && tempC <= crop.maxTempC) {
         score += 15;
-        reasons.push(`Current temperature (${tempC}°C) supports healthy growth`);
+        reasons.push(
+          `Current temperature (${tempC}°C) supports healthy growth`
+        );
       } else if (tempC >= crop.minTempC - 4 && tempC <= crop.maxTempC + 4) {
         score += 8;
       }
     } else {
-      score += 10; // neutral baseline if weather unavailable
+      score += 10;
     }
 
     // 5. Soil pH match (15 pts)
     if (ph !== null) {
       if (ph >= crop.idealPhMin && ph <= crop.idealPhMax) {
         score += 15;
-        reasons.push(`Soil pH (${ph}) aligns with ideal ${crop.idealPhMin}–${crop.idealPhMax}`);
+        reasons.push(
+          `Soil pH (${ph}) aligns with ideal ${crop.idealPhMin}–${crop.idealPhMax}`
+        );
       } else if (ph >= crop.idealPhMin - 0.6 && ph <= crop.idealPhMax + 0.6) {
         score += 8;
       }
@@ -103,7 +184,10 @@ export function recommendCrops(params: {
       crop,
       score,
       suitability,
-      reasons: reasons.length > 0 ? reasons : ['Possible with careful soil & water management'],
+      reasons:
+        reasons.length > 0
+          ? reasons
+          : ['Possible with careful soil & water management'],
     };
   });
 
@@ -116,8 +200,10 @@ export function generateCropActivities(params: {
   farmId: string;
   userId: string;
   sowingDate: string;
+  crop?: NepalCrop;
+  crops?: NepalCrop[];
 }): Array<Omit<FarmingActivity, 'id' | 'created_at'>> {
-  const crop = getCropByKey(params.cropKey);
+  const crop = params.crop ?? getCropByKey(params.cropKey, params.crops);
   if (!crop) return [];
 
   return crop.stages.map((stage) => ({
