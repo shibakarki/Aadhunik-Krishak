@@ -18,6 +18,23 @@ export interface Profile {
   created_at: string;
 }
 
+export interface SoilData {
+  ph: number;
+  organicCarbonGKg: number;
+  nitrogenGKg: number;
+  clayPercent: number;
+  sandPercent: number;
+  siltPercent: number;
+  textureClass: string;
+  source: 'SoilGrids' | 'Regional Fallback' | 'Lab Soil Report';
+  phosphorusKgHa?: number | null;
+  potassiumKgHa?: number | null;
+  labName?: string | null;
+  testDate?: string | null;
+  reportNotes?: string | null;
+  uploadedAt?: string | null;
+}
+
 export interface Farm {
   id: string;
   user_id: string;
@@ -30,6 +47,7 @@ export interface Farm {
   agro_zone: AgroZone | null;
   soil_type: string | null;
   soil_ph: number | null;
+  soil_report?: SoilData | null;
   created_at: string;
 }
 
@@ -124,17 +142,6 @@ export interface WeatherData {
   currentWeatherLabel: string;
   daily: DailyForecast[];
   fetchedAt: string;
-}
-
-export interface SoilData {
-  ph: number;
-  organicCarbonGKg: number;
-  nitrogenGKg: number;
-  clayPercent: number;
-  sandPercent: number;
-  siltPercent: number;
-  textureClass: string;
-  source: 'SoilGrids' | 'Regional Fallback';
 }
 
 export interface CropRecommendation {
