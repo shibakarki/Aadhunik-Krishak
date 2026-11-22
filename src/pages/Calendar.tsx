@@ -11,16 +11,22 @@ import {
   ArrowRight,
   Calendar as CalendarIcon,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   CloudRain,
   Droplets,
+  Eye,
+  EyeOff,
   Loader2,
+  Lock,
   MapPin,
   Plus,
   RefreshCw,
   Sprout,
   Sun,
+  Trash2,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useFarm } from "../context/FarmContext";
@@ -170,6 +176,19 @@ function getIrrigationCardStyle(action: IrrigationAdvice["action"]): {
   };
 }
 
+function isStageTemplateTask(
+  task: FarmingActivity,
+  cropById: Record<string, RegisteredCrop>,
+): boolean {
+  const crop = cropById[task.crop_id];
+  if (!crop) return false;
+  const nepalCrop = getCropByKey(crop.crop_key);
+  if (!nepalCrop) return false;
+  return nepalCrop.stages.some(
+    (stage) => task.title === `${nepalCrop.name}: ${stage.title}`,
+  );
+}
+
 export function Calendar() {
   const { user } = useAuth();
   const { activeFarm, loading: farmLoading } = useFarm();
@@ -195,12 +214,15 @@ export function Calendar() {
   const [weatherError, setWeatherError] = useState<string | null>(null);
   const [panelTab, setPanelTab] = useState<"selected" | "upcoming">("selected");
 
-  // Add custom task form
+  // Add Task bar & visibility controls
+  const [showAddTaskForm, setShowAddTaskForm] = useState<boolean>(true);
+  const [hideAddedTasks, setHideAddedTasks] = useState<boolean>(false);
   const [newTitle, setNewTitle] = useState<string>("");
   const [newDescription, setNewDescription] = useState<string>("");
   const [newType, setNewType] = useState<ActivityType>("irrigation");
   const [newCropId, setNewCropId] = useState<string>("");
   const [addingTask, setAddingTask] = useState<boolean>(false);
+  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
 
   const loadCalendarData = useCallback(async () => {
     if (!activeFarm) return;
@@ -267,10 +289,10 @@ export function Calendar() {
     [crops],
   );
 
-  const cropNameById = useMemo(() => {
-    const map: Record<string, string> = {};
+  const cropById = useMemo(() => {
+    const map: Record<string, RegisteredCrop> = {};
     crops.forEach((c) => {
-      map[c.id] = c.crop_name;
+      map[c.id] = c;
     });
     return map;
   }, [crops]);
@@ -369,9 +391,22 @@ export function Calendar() {
     [activitiesByDate, selectedDateKey],
   );
 
+  const visibleSelectedDayTasks = useMemo(() => {
+    if (!hideAddedTasks) return selectedDayTasks;
+    return selectedDayTasks.filter((task) =>
+      isStageTemplateTask(task, cropById),
+    );
+  }, [selectedDayTasks, hideAddedTasks, cropById]);
+
+  const hiddenAddedCount =
+    selectedDayTasks.length - visibleSelectedDayTasks.length;
+  const isSelectedDateFuture = selectedDateKey > todayKey;
+
   const selectedDayDoneCount = useMemo(
-    () => selectedDayTasks.filter((t) => t.completed).length,
-    [selectedDayTasks],
+    () =>
+      selectedDayTasks.filter((t) => t.completed && t.due_date <= todayKey)
+        .length,
+    [selectedDayTasks, todayKey],
   );
 
   const selectedDayProgress =
@@ -380,14 +415,18 @@ export function Calendar() {
       : Math.round((selectedDayDoneCount / selectedDayTasks.length) * 100);
 
   const totalCompletedCount = useMemo(
-    () => activities.filter((a) => a.completed).length,
-    [activities],
+    () =>
+      activities.filter((a) => a.completed && a.due_date <= todayKey).length,
+    [activities, todayKey],
   );
 
-  const upcomingTasks = useMemo(
-    () => activities.filter((a) => !a.completed).slice(0, 20),
-    [activities],
-  );
+  const upcomingTasks = useMemo(() => {
+    const pending = activities.filter((a) => !a.completed);
+    const filtered = hideAddedTasks
+      ? pending.filter((task) => isStageTemplateTask(task, cropById))
+      : pending;
+    return filtered.slice(0, 20);
+  }, [activities, hideAddedTasks, cropById]);
 
   const selectedDateBs = useMemo(
     () => getBsLabelForAdDate(selectedDateKey),
@@ -423,10 +462,13 @@ export function Calendar() {
   };
 
   const handleToggleCompleted = async (activity: FarmingActivity) => {
+    if (activity.due_date > todayKey && !activity.completed) {
+      return;
+    }
+
     const nextCompleted = !activity.completed;
     const completedAt = nextCompleted ? new Date().toISOString() : null;
 
-    // Optimistic update
     setActivities((prev) =>
       prev.map((item) =>
         item.id === activity.id
@@ -441,12 +483,31 @@ export function Calendar() {
       .eq("id", activity.id);
 
     if (updateError) {
-      // Revert if failed
       setActivities((prev) =>
         prev.map((item) => (item.id === activity.id ? activity : item)),
       );
       setError(`Could not update task: ${updateError.message}`);
     }
+  };
+
+  const handleDeleteTask = async (activity: FarmingActivity) => {
+    setDeletingTaskId(activity.id);
+    setError(null);
+
+    const previous = activities;
+    setActivities((prev) => prev.filter((item) => item.id !== activity.id));
+
+    const { error: deleteError } = await supabase
+      .from("activities")
+      .delete()
+      .eq("id", activity.id);
+
+    if (deleteError) {
+      setActivities(previous);
+      setError(`Could not remove task: ${deleteError.message}`);
+    }
+
+    setDeletingTaskId(null);
   };
 
   const handleAddCustomTask = async (e: FormEvent) => {
@@ -486,6 +547,7 @@ export function Calendar() {
       );
       setNewTitle("");
       setNewDescription("");
+      setHideAddedTasks(false);
     }
 
     setAddingTask(false);
@@ -543,8 +605,8 @@ export function Calendar() {
             {activeFarm.name} — Activity Schedule
           </h1>
           <p className="mt-1 text-sm text-slate-600">
-            Track crop lifecycle milestones, check off daily field tasks, and
-            follow real-time irrigation guidance.
+            Track crop lifecycle milestones, switch today’s or past field tasks
+            done, and follow real-time irrigation guidance.
           </p>
         </div>
 
@@ -585,7 +647,7 @@ export function Calendar() {
         </div>
       )}
 
-      {/* Lifecycle Overview Strip (from prototype layout) */}
+      {/* Lifecycle Overview Strip */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <p className="text-xs font-medium uppercase text-slate-500">
@@ -732,15 +794,14 @@ export function Calendar() {
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
         {/* LEFT: Calendar Grid */}
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6 lg:col-span-7 xl:col-span-8">
-          {/* Month Header & Controls */}
           <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-xl font-bold text-slate-900">
                 {MONTH_NAMES[viewMonth]} {viewYear}
               </h2>
               <p className="text-xs text-slate-500">
-                Click any date to inspect, complete, or add farming tasks (BS
-                2083 numerals shown where available).
+                Click any date to schedule, view, or switch today’s &amp; past
+                farming tasks.
               </p>
             </div>
 
@@ -771,7 +832,6 @@ export function Calendar() {
             </div>
           </div>
 
-          {/* Legend */}
           <div className="flex flex-wrap items-center gap-3 py-3 text-xs font-medium">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-amber-800">
               <span className="h-2 w-2 rounded-full bg-amber-500" />
@@ -785,7 +845,6 @@ export function Calendar() {
             </span>
           </div>
 
-          {/* Weekday Headers */}
           <div className="mb-1.5 grid grid-cols-7 gap-1.5 sm:gap-2">
             {WEEKDAYS.map((wd, idx) => (
               <div
@@ -801,7 +860,6 @@ export function Calendar() {
             ))}
           </div>
 
-          {/* Calendar Cells */}
           <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
             {calendarCells.map((cell, idx) => {
               if (!cell) {
@@ -899,7 +957,6 @@ export function Calendar() {
 
         {/* RIGHT: Sticky Interactive Task Panel */}
         <aside className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:sticky lg:top-6 lg:col-span-5 xl:col-span-4">
-          {/* Panel Header */}
           <div className="bg-slate-900 p-5 text-white">
             <div className="flex items-start justify-between gap-2">
               <div>
@@ -940,11 +997,14 @@ export function Calendar() {
               </div>
             </div>
 
-            {/* Daily Completion Progress Bar */}
             {panelTab === "selected" && (
               <div className="mt-4 rounded-xl bg-slate-800/80 p-3">
                 <div className="mb-1.5 flex items-center justify-between text-xs">
-                  <span className="text-slate-300">Daily Task Progress</span>
+                  <span className="text-slate-300">
+                    {isSelectedDateFuture
+                      ? "Scheduled Future Tasks"
+                      : "Daily Task Progress"}
+                  </span>
                   <span className="font-semibold text-emerald-300">
                     {selectedDayDoneCount}/{selectedDayTasks.length} Done (
                     {selectedDayProgress}%)
@@ -956,11 +1016,16 @@ export function Calendar() {
                     style={{ width: `${selectedDayProgress}%` }}
                   />
                 </div>
+                {isSelectedDateFuture && selectedDayTasks.length > 0 && (
+                  <p className="mt-2 flex items-center gap-1 text-[11px] text-amber-300">
+                    <Lock className="h-3 w-3 shrink-0" />
+                    Future tasks stay locked until {selectedDateKey}.
+                  </p>
+                )}
               </div>
             )}
           </div>
 
-          {/* Panel Body */}
           <div className="max-h-[70vh] space-y-5 overflow-y-auto p-5">
             {loading && activities.length === 0 ? (
               <div className="flex items-center gap-2 py-6 text-sm text-slate-500">
@@ -969,56 +1034,66 @@ export function Calendar() {
               </div>
             ) : panelTab === "selected" ? (
               <>
-                {/* Tasks for Selected Day */}
-                {selectedDayTasks.length === 0 ? (
+                {visibleSelectedDayTasks.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-5 text-center">
                     <p className="text-sm font-medium text-slate-700">
-                      No tasks scheduled for {selectedDateKey}
+                      {hiddenAddedCount > 0
+                        ? `${hiddenAddedCount} added task(s) hidden on ${selectedDateKey}`
+                        : `No tasks scheduled for ${selectedDateKey}`}
                     </p>
                     <p className="mt-1 text-xs text-slate-500">
-                      Select another highlighted date on the calendar or add a
-                      custom task below.
+                      {hiddenAddedCount > 0
+                        ? 'Click "Show added" below to view your custom tasks.'
+                        : "Select another highlighted date on the calendar or add a custom task below."}
                     </p>
                   </div>
                 ) : (
                   <div className="space-y-2.5">
-                    {selectedDayTasks.map((task) => {
+                    {visibleSelectedDayTasks.map((task) => {
                       const meta = ACTIVITY_META[task.activity_type];
+                      const cropName = cropById[task.crop_id]?.crop_name;
+                      const isAddedCustom = !isStageTemplateTask(
+                        task,
+                        cropById,
+                      );
+                      const isFutureTask = task.due_date > todayKey;
+                      const isSwitchDisabled = isFutureTask && !task.completed;
+                      const isDeleting = deletingTaskId === task.id;
+
                       return (
-                        <label
+                        <div
                           key={task.id}
-                          className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition ${
-                            task.completed
-                              ? "border-emerald-200 bg-emerald-50/50 opacity-80"
-                              : "border-slate-200 bg-white hover:border-emerald-300"
+                          className={`flex items-start justify-between gap-3 rounded-xl border p-3 transition ${
+                            task.completed && !isFutureTask
+                              ? "border-emerald-200 bg-emerald-50/50"
+                              : "border-slate-200 bg-white"
                           }`}
                         >
-                          <input
-                            type="checkbox"
-                            checked={task.completed}
-                            onChange={() => void handleToggleCompleted(task)}
-                            className="mt-1 h-4 w-4 shrink-0 rounded accent-emerald-600"
-                          />
-
                           <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center justify-between gap-1.5">
+                            <div className="flex flex-wrap items-center gap-1.5">
                               <span
                                 className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${meta.badgeClass}`}
                               >
                                 {meta.emoji} {meta.label}
                               </span>
 
-                              {cropNameById[task.crop_id] && (
+                              {isAddedCustom && (
+                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                                  Added
+                                </span>
+                              )}
+
+                              {cropName && (
                                 <span className="text-[11px] font-medium text-slate-500">
-                                  {cropNameById[task.crop_id]}
+                                  {cropName}
                                 </span>
                               )}
                             </div>
 
                             <p
                               className={`mt-1.5 text-sm font-semibold ${
-                                task.completed
-                                  ? "text-slate-400 line-through"
+                                task.completed && !isFutureTask
+                                  ? "text-slate-500 line-through"
                                   : "text-slate-900"
                               }`}
                             >
@@ -1030,125 +1105,274 @@ export function Calendar() {
                                 {task.description}
                               </p>
                             )}
+
+                            {isFutureTask && (
+                              <p className="mt-1.5 inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                                <Lock className="h-3 w-3" />
+                                Unlocks on {task.due_date}
+                              </p>
+                            )}
                           </div>
-                        </label>
+
+                          {/* Right Side Controls: Done/Undone Switch + Remove Button */}
+                          <div className="flex shrink-0 flex-col items-end gap-2">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className={`text-[11px] font-semibold ${
+                                  isSwitchDisabled
+                                    ? "text-slate-400"
+                                    : task.completed
+                                      ? "text-emerald-700"
+                                      : "text-slate-500"
+                                }`}
+                              >
+                                {task.completed ? "Done" : "Undone"}
+                              </span>
+
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={task.completed}
+                                aria-label={`Mark ${task.title} as ${
+                                  task.completed ? "undone" : "done"
+                                }`}
+                                disabled={isSwitchDisabled}
+                                onClick={() => void handleToggleCompleted(task)}
+                                title={
+                                  isSwitchDisabled
+                                    ? `Available on ${task.due_date}`
+                                    : task.completed
+                                      ? "Switch to Undone"
+                                      : "Switch to Done"
+                                }
+                                className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none ${
+                                  isSwitchDisabled
+                                    ? "cursor-not-allowed bg-slate-200 opacity-60"
+                                    : task.completed
+                                      ? "cursor-pointer bg-emerald-600"
+                                      : "cursor-pointer bg-slate-300 hover:bg-slate-400"
+                                }`}
+                              >
+                                <span
+                                  className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+                                    task.completed
+                                      ? "translate-x-4"
+                                      : "translate-x-1"
+                                  }`}
+                                />
+                              </button>
+                            </div>
+
+                            <button
+                              type="button"
+                              disabled={isDeleting}
+                              onClick={() => void handleDeleteTask(task)}
+                              title="Remove task"
+                              aria-label={`Remove ${task.title}`}
+                              className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              Remove
+                            </button>
+                          </div>
+                        </div>
                       );
                     })}
                   </div>
                 )}
 
-                {/* Add Custom Task Form */}
+                {/* Add Task Bar (with Hide Added Tasks + Collapse Form controls) */}
                 <div className="border-t border-slate-100 pt-4">
-                  <h4 className="mb-3 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-700">
-                    <Plus className="h-4 w-4 text-emerald-600" />
-                    Add Task for {selectedDateKey}
-                  </h4>
-
-                  {crops.length === 0 ? (
-                    <div className="rounded-xl bg-amber-50 p-3 text-xs text-amber-800">
-                      Register a crop on the{" "}
-                      <Link to="/crops" className="font-semibold underline">
-                        Crops page
-                      </Link>{" "}
-                      first to link tasks to a crop.
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-700">
+                      <Plus className="h-4 w-4 text-emerald-600" />
+                      <span>Add Task ({selectedDateKey})</span>
                     </div>
-                  ) : (
-                    <form
-                      onSubmit={(e) => void handleAddCustomTask(e)}
-                      className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5"
-                    >
-                      <input
-                        type="text"
-                        required
-                        value={newTitle}
-                        onChange={(e) => setNewTitle(e.target.value)}
-                        placeholder="e.g., Check drip lines or apply compost"
-                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none"
-                      />
 
-                      <input
-                        type="text"
-                        value={newDescription}
-                        onChange={(e) => setNewDescription(e.target.value)}
-                        placeholder="Optional notes..."
-                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700 focus:border-emerald-500 focus:outline-none"
-                      />
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <select
-                          value={newType}
-                          onChange={(e) =>
-                            setNewType(e.target.value as ActivityType)
-                          }
-                          className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700"
-                        >
-                          {(Object.keys(ACTIVITY_META) as ActivityType[]).map(
-                            (type) => (
-                              <option key={type} value={type}>
-                                {ACTIVITY_META[type].emoji}{" "}
-                                {ACTIVITY_META[type].label}
-                              </option>
-                            ),
-                          )}
-                        </select>
-
-                        <select
-                          value={newCropId || crops[0]?.id || ""}
-                          onChange={(e) => setNewCropId(e.target.value)}
-                          className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700"
-                        >
-                          {crops.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.crop_name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setHideAddedTasks((prev) => !prev)}
+                        className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${
+                          hideAddedTasks
+                            ? "border-amber-300 bg-amber-50 text-amber-800"
+                            : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                        }`}
+                        title="Hide or show custom added tasks"
+                      >
+                        {hideAddedTasks ? (
+                          <>
+                            <Eye className="h-3.5 w-3.5" />
+                            Show added
+                          </>
+                        ) : (
+                          <>
+                            <EyeOff className="h-3.5 w-3.5" />
+                            Hide added
+                          </>
+                        )}
+                      </button>
 
                       <button
-                        type="submit"
-                        disabled={addingTask || !newTitle.trim()}
-                        className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                        type="button"
+                        onClick={() => setShowAddTaskForm((prev) => !prev)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
                       >
-                        {addingTask && (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        {showAddTaskForm ? (
+                          <>
+                            Hide form
+                            <ChevronUp className="h-3.5 w-3.5" />
+                          </>
+                        ) : (
+                          <>
+                            Show form
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          </>
                         )}
-                        {addingTask
-                          ? "Saving..."
-                          : `Add Activity to ${selectedDateKey}`}
                       </button>
-                    </form>
+                    </div>
+                  </div>
+
+                  {showAddTaskForm && (
+                    <>
+                      {crops.length === 0 ? (
+                        <div className="rounded-xl bg-amber-50 p-3 text-xs text-amber-800">
+                          Register a crop on the{" "}
+                          <Link to="/crops" className="font-semibold underline">
+                            Crops page
+                          </Link>{" "}
+                          first to link tasks to a crop.
+                        </div>
+                      ) : (
+                        <form
+                          onSubmit={(e) => void handleAddCustomTask(e)}
+                          className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5"
+                        >
+                          <input
+                            type="text"
+                            required
+                            value={newTitle}
+                            onChange={(e) => setNewTitle(e.target.value)}
+                            placeholder="e.g., Check drip lines or apply compost"
+                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none"
+                          />
+
+                          <input
+                            type="text"
+                            value={newDescription}
+                            onChange={(e) => setNewDescription(e.target.value)}
+                            placeholder="Optional notes..."
+                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700 focus:border-emerald-500 focus:outline-none"
+                          />
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <select
+                              value={newType}
+                              onChange={(e) =>
+                                setNewType(e.target.value as ActivityType)
+                              }
+                              className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700"
+                            >
+                              {(
+                                Object.keys(ACTIVITY_META) as ActivityType[]
+                              ).map((type) => (
+                                <option key={type} value={type}>
+                                  {ACTIVITY_META[type].emoji}{" "}
+                                  {ACTIVITY_META[type].label}
+                                </option>
+                              ))}
+                            </select>
+
+                            <select
+                              value={newCropId || crops[0]?.id || ""}
+                              onChange={(e) => setNewCropId(e.target.value)}
+                              className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700"
+                            >
+                              {crops.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.crop_name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <button
+                            type="submit"
+                            disabled={addingTask || !newTitle.trim()}
+                            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                          >
+                            {addingTask && (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            )}
+                            {addingTask
+                              ? "Saving..."
+                              : `Add Activity to ${selectedDateKey}`}
+                          </button>
+                        </form>
+                      )}
+                    </>
                   )}
                 </div>
               </>
             ) : (
               /* All Upcoming Pending Tasks Tab */
               <div className="space-y-2.5">
+                <div className="flex items-center justify-between pb-1">
+                  <span className="text-xs font-medium text-slate-500">
+                    Pending tasks
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setHideAddedTasks((prev) => !prev)}
+                    className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${
+                      hideAddedTasks
+                        ? "border-amber-300 bg-amber-50 text-amber-800"
+                        : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    {hideAddedTasks ? (
+                      <>
+                        <Eye className="h-3.5 w-3.5" />
+                        Show added
+                      </>
+                    ) : (
+                      <>
+                        <EyeOff className="h-3.5 w-3.5" />
+                        Hide added
+                      </>
+                    )}
+                  </button>
+                </div>
+
                 {upcomingTasks.length === 0 ? (
                   <p className="py-6 text-center text-sm text-slate-500">
-                    No pending tasks! All tasks are completed.
+                    No pending tasks to display!
                   </p>
                 ) : (
                   upcomingTasks.map((task) => {
                     const meta = ACTIVITY_META[task.activity_type];
+                    const isAddedCustom = !isStageTemplateTask(task, cropById);
+                    const isFutureTask = task.due_date > todayKey;
+                    const isSwitchDisabled = isFutureTask && !task.completed;
+                    const isDeleting = deletingTaskId === task.id;
+
                     return (
                       <div
                         key={task.id}
-                        className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3"
+                        className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3"
                       >
-                        <input
-                          type="checkbox"
-                          checked={task.completed}
-                          onChange={() => void handleToggleCompleted(task)}
-                          className="mt-1 h-4 w-4 shrink-0 rounded accent-emerald-600"
-                        />
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-1.5">
                             <span
                               className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${meta.badgeClass}`}
                             >
                               {meta.emoji} {meta.label}
                             </span>
+                            {isAddedCustom && (
+                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                                Added
+                              </span>
+                            )}
                             <button
                               type="button"
                               onClick={() => handleJumpToDate(task.due_date)}
@@ -1157,14 +1381,73 @@ export function Calendar() {
                               {task.due_date}
                             </button>
                           </div>
+
                           <p className="mt-1 text-sm font-semibold text-slate-900">
                             {task.title}
                           </p>
+
                           {task.description && (
                             <p className="mt-0.5 text-xs text-slate-600">
                               {task.description}
                             </p>
                           )}
+
+                          {isFutureTask && (
+                            <p className="mt-1.5 inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                              <Lock className="h-3 w-3" />
+                              Unlocks on {task.due_date}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex shrink-0 flex-col items-end gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={`text-[11px] font-semibold ${
+                                isSwitchDisabled
+                                  ? "text-slate-400"
+                                  : task.completed
+                                    ? "text-emerald-700"
+                                    : "text-slate-500"
+                              }`}
+                            >
+                              {task.completed ? "Done" : "Undone"}
+                            </span>
+
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={task.completed}
+                              disabled={isSwitchDisabled}
+                              onClick={() => void handleToggleCompleted(task)}
+                              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none ${
+                                isSwitchDisabled
+                                  ? "cursor-not-allowed bg-slate-200 opacity-60"
+                                  : task.completed
+                                    ? "cursor-pointer bg-emerald-600"
+                                    : "cursor-pointer bg-slate-300 hover:bg-slate-400"
+                              }`}
+                            >
+                              <span
+                                className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+                                  task.completed
+                                    ? "translate-x-4"
+                                    : "translate-x-1"
+                                }`}
+                              />
+                            </button>
+                          </div>
+
+                          <button
+                            type="button"
+                            disabled={isDeleting}
+                            onClick={() => void handleDeleteTask(task)}
+                            title="Remove task"
+                            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Remove
+                          </button>
                         </div>
                       </div>
                     );
