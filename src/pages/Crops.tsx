@@ -1,3 +1,4 @@
+tsx;
 import {
   useCallback,
   useEffect,
@@ -24,11 +25,19 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useFarm } from "../context/FarmContext";
+import {
+  LanguageToggle,
+  translateAgroZone,
+  translateSeason,
+  useLanguage,
+  type AppLanguage,
+} from "../context/LanguageContext";
 import { supabase } from "../lib/supabase";
 import {
   addDaysToDate,
   determineAgroZone,
   generateCropActivities,
+  getCropByKey,
   getCurrentNepalSeason,
   recommendCrops,
 } from "../services/cropEngine";
@@ -41,6 +50,7 @@ import type {
   NepalSeason,
   RegisteredCrop,
   SoilData,
+  WaterRequirement,
   WeatherData,
 } from "../types";
 
@@ -64,6 +74,79 @@ function getSuitabilityStyle(
   return "border-amber-200 bg-amber-50 text-amber-700";
 }
 
+function translateSuitability(
+  suitability: CropRecommendation["suitability"],
+  lang: AppLanguage,
+): string {
+  if (lang === "en") return suitability;
+  if (suitability === "Highly Suitable") return "अत्यन्त उपयुक्त";
+  if (suitability === "Suitable") return "उपयुक्त";
+  return "मध्यम उपयुक्त";
+}
+
+function translateCategory(
+  cat: NepalCrop["category"],
+  lang: AppLanguage,
+): string {
+  if (lang === "en") return cat;
+  if (cat === "Cereal") return "अन्न बाली";
+  if (cat === "Vegetable") return "तरकारी";
+  if (cat === "Pulse") return "दाल / कोसेबाली";
+  if (cat === "Oilseed") return "तेलहन";
+  return "नगदे बाली";
+}
+
+function translateWaterReq(req: WaterRequirement, lang: AppLanguage): string {
+  if (lang === "en") return req;
+  if (req === "high") return "धेरै";
+  if (req === "medium") return "मध्यम";
+  return "कम";
+}
+
+function translateStatus(
+  status: RegisteredCrop["status"],
+  lang: AppLanguage,
+): string {
+  if (lang === "en") return status;
+  if (status === "active") return "सक्रिय";
+  if (status === "harvested") return "भण्डारण / कटानी";
+  return "रद्द";
+}
+
+function translateReason(reason: string, lang: AppLanguage): string {
+  if (lang === "en") return reason;
+
+  if (reason.includes("agro-ecological zone")) {
+    const zoneMatch = reason.match(/for (\w+) agro-ecological/);
+    const zone = zoneMatch?.[1] as AgroZone | undefined;
+    const zoneNe = zone ? translateAgroZone(zone, "ne") : "";
+    return `${zoneNe} कृषि-पारिस्थितिक क्षेत्रका लागि अत्यन्त उपयुक्त`;
+  }
+  if (reason.includes("Elevation")) {
+    const elevMatch = reason.match(/\(([^)]+)\)/);
+    return `उचाइ (${elevMatch?.[1] ?? ""}) उपयुक्त सीमाभित्र छ`;
+  }
+  if (reason.includes("planting season")) {
+    const seasonMatch = reason.match(/current (\w+) planting/);
+    const season = seasonMatch?.[1] as NepalSeason | undefined;
+    const seasonNe = season ? translateSeason(season, "ne") : "";
+    return `हालको ${seasonNe} रोपाइँ यामसँग मेल खान्छ`;
+  }
+  if (reason.includes("Current temperature")) {
+    const tempMatch = reason.match(/\(([^)]+)\)/);
+    return `हालको तापक्रम (${tempMatch?.[1] ?? ""}) स्वस्थ वृद्धिका लागि उपयुक्त छ`;
+  }
+  if (reason.includes("Soil pH")) {
+    const phMatch = reason.match(/pH \(([^)]+)\)/);
+    const idealMatch = reason.match(/ideal ([^\s]+)/);
+    return `माटोको pH (${phMatch?.[1] ?? ""}) आदर्श ${idealMatch?.[1] ?? ""} भित्र पर्छ`;
+  }
+  if (reason.includes("careful soil")) {
+    return "माटो र सिँचाइको उचित व्यवस्थापनमा खेती गर्न सकिन्छ";
+  }
+  return reason;
+}
+
 function getStatusBadge(status: RegisteredCrop["status"]): string {
   if (status === "active") return "bg-emerald-100 text-emerald-800";
   if (status === "harvested") return "bg-sky-100 text-sky-800";
@@ -71,6 +154,7 @@ function getStatusBadge(status: RegisteredCrop["status"]): string {
 }
 
 export function Crops() {
+  const { lang } = useLanguage();
   const { user } = useAuth();
   const { activeFarm, loading: farmLoading } = useFarm();
 
@@ -133,7 +217,11 @@ export function Crops() {
         setRegisteredCrops((cropsRes.value.data as RegisteredCrop[]) ?? []);
       }
     } else {
-      setError("Failed to load registered crops.");
+      setError(
+        lang === "ne"
+          ? "दर्ता गरिएका बालीहरू लोड गर्न सकिएन।"
+          : "Failed to load registered crops.",
+      );
     }
 
     setLoading(false);
@@ -143,6 +231,7 @@ export function Crops() {
     activeFarm?.longitude,
     activeFarm?.agro_zone,
     activeFarm?.elevation_m,
+    lang,
   ]);
 
   useEffect(() => {
@@ -194,13 +283,19 @@ export function Crops() {
     const parsedArea = Number(areaHectares);
     if (!Number.isFinite(parsedArea) || parsedArea <= 0) {
       setSubmitError(
-        "Please enter a valid cultivated area greater than 0 hectares.",
+        lang === "ne"
+          ? "कृपया ० हेक्टरभन्दा बढी मान्य क्षेत्रफल लेख्नुहोस्।"
+          : "Please enter a valid cultivated area greater than 0 hectares.",
       );
       return;
     }
 
     if (!sowingDate) {
-      setSubmitError("Please choose a sowing date.");
+      setSubmitError(
+        lang === "ne"
+          ? "कृपया रोपाइँ मिति छान्नुहोस्।"
+          : "Please choose a sowing date.",
+      );
       return;
     }
 
@@ -253,8 +348,11 @@ export function Crops() {
       }
 
       setRegisteredCrops((prev) => [newCrop, ...prev]);
+      const displayName = lang === "ne" ? modalCrop.nepaliName : modalCrop.name;
       setSuccessMessage(
-        `Registered ${modalCrop.name}${variety ? ` (${variety})` : ""} and created ${stageActivities.length} farming tasks in your Calendar!`,
+        lang === "ne"
+          ? `${displayName}${variety ? ` (${variety})` : ""} दर्ता गरियो र पात्रोमा ${stageActivities.length} वटा कृषि कार्यहरू थपियो!`
+          : `Registered ${modalCrop.name}${variety ? ` (${variety})` : ""} and created ${stageActivities.length} farming tasks in your Calendar!`,
       );
       setModalCrop(null);
     } catch (err) {
@@ -284,7 +382,9 @@ export function Crops() {
       <div className="flex min-h-[50vh] items-center justify-center">
         <div className="flex items-center gap-3 text-slate-600">
           <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
-          <span>Loading your farm...</span>
+          <span>
+            {lang === "ne" ? "खेत लोड हुँदैछ..." : "Loading your farm..."}
+          </span>
         </div>
       </div>
     );
@@ -295,22 +395,29 @@ export function Crops() {
       <div className="mx-auto max-w-2xl rounded-2xl border border-amber-200 bg-amber-50 p-8 text-center">
         <MapPin className="mx-auto mb-3 h-10 w-10 text-amber-600" />
         <h2 className="text-xl font-semibold text-slate-900">
-          No Active Farm Selected
+          {lang === "ne"
+            ? "कुनै सक्रिय खेत छानिएको छैन"
+            : "No Active Farm Selected"}
         </h2>
         <p className="mt-2 text-sm text-slate-600">
-          Please add or select a farm first to view personalized crop
-          recommendations and register crops.
+          {lang === "ne"
+            ? "उपयुक्त बाली सिफारिस हेर्न र बाली दर्ता गर्न पहिले खेत थप्नुहोस् वा छान्नुहोस्।"
+            : "Please add or select a farm first to view personalized crop recommendations and register crops."}
         </p>
         <Link
           to="/farms/new"
           className="mt-5 inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-emerald-700"
         >
-          Add or Select a Farm
+          {lang === "ne"
+            ? "खेत थप्नुहोस् वा छान्नुहोस्"
+            : "Add or Select a Farm"}
           <ArrowRight className="h-4 w-4" />
         </Link>
       </div>
     );
   }
+
+  const currentZone = determineAgroZone(effectiveElevation);
 
   return (
     <div className="space-y-6">
@@ -320,27 +427,36 @@ export function Crops() {
           <div className="flex items-center gap-2 text-emerald-700">
             <Sprout className="h-5 w-5" />
             <span className="text-xs font-semibold uppercase tracking-wider">
-              Smart Crop Advisory
+              {lang === "ne" ? "स्मार्ट बाली सल्लाहकार" : "Smart Crop Advisory"}
             </span>
           </div>
           <h1 className="mt-1 text-2xl font-bold text-slate-900">
-            Crop Recommendations &amp; Registration
+            {lang === "ne"
+              ? "बाली सिफारिस तथा दर्ता"
+              : "Crop Recommendations & Registration"}
           </h1>
           <p className="mt-1 text-sm text-slate-600">
-            Ranked for <span className="font-medium">{activeFarm.name}</span> (
-            {determineAgroZone(effectiveElevation)} zone ·{" "}
-            {Math.round(effectiveElevation)}m{soil ? ` · pH ${soil.ph}` : ""}
+            {lang === "ne" ? "खेत: " : "Ranked for "}
+            <span className="font-medium">{activeFarm.name}</span> (
+            {translateAgroZone(currentZone, lang)}{" "}
+            {lang === "ne" ? "क्षेत्र" : "zone"} ·{" "}
+            {Math.round(effectiveElevation)}
+            {lang === "ne" ? " मि." : "m"}
+            {soil ? ` · pH ${soil.ph}` : ""}
             {weather ? ` · ${weather.currentTempC}°C` : ""})
           </p>
         </div>
 
-        <Link
-          to="/calendar"
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-        >
-          <Calendar className="h-4 w-4 text-emerald-600" />
-          View Farming Calendar
-        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          <LanguageToggle />
+          <Link
+            to="/calendar"
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+          >
+            <Calendar className="h-4 w-4 text-emerald-600" />
+            {lang === "ne" ? "कृषि पात्रो हेर्नुहोस्" : "View Farming Calendar"}
+          </Link>
+        </div>
       </div>
 
       {successMessage && (
@@ -353,7 +469,7 @@ export function Crops() {
             to="/calendar"
             className="inline-flex items-center gap-1 font-semibold text-emerald-700 underline hover:text-emerald-900"
           >
-            Go to Calendar
+            {lang === "ne" ? "पात्रोमा जानुहोस्" : "Go to Calendar"}
             <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
@@ -366,84 +482,105 @@ export function Crops() {
         </div>
       )}
 
-      {/* Registered Crops on This Farm */}
+      {/* Registered Crops */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2">
             <Leaf className="h-5 w-5 text-emerald-600" />
             <h2 className="text-lg font-semibold text-slate-900">
-              Registered Crops on {activeFarm.name}
+              {lang === "ne"
+                ? `${activeFarm.name} मा दर्ता भएका बालीहरू`
+                : `Registered Crops on ${activeFarm.name}`}
             </h2>
           </div>
           <span className="text-xs font-medium text-slate-500">
-            {registeredCrops.length} total
+            {registeredCrops.length} {lang === "ne" ? "जम्मा" : "total"}
           </span>
         </div>
 
         {loading && registeredCrops.length === 0 ? (
           <div className="flex items-center gap-2 py-6 text-sm text-slate-500">
             <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
-            Loading registered crops...
+            {lang === "ne"
+              ? "दर्ता भएका बाली लोड हुँदैछ..."
+              : "Loading registered crops..."}
           </div>
         ) : registeredCrops.length === 0 ? (
           <p className="py-4 text-sm text-slate-500">
-            No crops registered on this farm yet. Pick a recommended crop below
-            to register it and auto-generate its farming calendar!
+            {lang === "ne"
+              ? "यो खेतमा अझै कुनै बाली दर्ता भएको छैन। तलको सिफारिसबाट बाली दर्ता गर्नुहोस् र कार्य तालिका बनाउनुहोस्!"
+              : "No crops registered on this farm yet. Pick a recommended crop below to register it and auto-generate its farming calendar!"}
           </p>
         ) : (
           <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {registeredCrops.map((crop) => (
-              <div
-                key={crop.id}
-                className="flex flex-col justify-between rounded-xl border border-slate-200 bg-slate-50/60 p-4"
-              >
-                <div>
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <h3 className="font-semibold text-slate-900">
-                        {crop.crop_name}
-                      </h3>
-                      <p className="text-xs text-slate-500">
-                        Variety: {crop.variety || "Standard"} ·{" "}
-                        {crop.area_hectares} ha
-                      </p>
+            {registeredCrops.map((crop) => {
+              const catalogCrop = getCropByKey(crop.crop_key);
+              const displayCropName =
+                lang === "ne" && catalogCrop
+                  ? catalogCrop.nepaliName
+                  : crop.crop_name;
+
+              return (
+                <div
+                  key={crop.id}
+                  className="flex flex-col justify-between rounded-xl border border-slate-200 bg-slate-50/60 p-4"
+                >
+                  <div>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h3 className="font-semibold text-slate-900">
+                          {displayCropName}
+                        </h3>
+                        <p className="text-xs text-slate-500">
+                          {lang === "ne" ? "जात: " : "Variety: "}
+                          {crop.variety ||
+                            (lang === "ne" ? "सामान्य" : "Standard")}{" "}
+                          · {crop.area_hectares} {lang === "ne" ? "हे." : "ha"}
+                        </p>
+                      </div>
+                      <span
+                        className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${getStatusBadge(
+                          crop.status,
+                        )}`}
+                      >
+                        {translateStatus(crop.status, lang)}
+                      </span>
                     </div>
-                    <span
-                      className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${getStatusBadge(
-                        crop.status,
-                      )}`}
+
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                      <div>
+                        <span className="block text-slate-400">
+                          {lang === "ne" ? "रोपाइँ मिति" : "Sowing Date"}
+                        </span>
+                        <span className="font-medium text-slate-800">
+                          {crop.sowing_date}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="block text-slate-400">
+                          {lang === "ne" ? "अनुमानित कटानी" : "Est. Harvest"}
+                        </span>
+                        <span className="font-medium text-slate-800">
+                          {crop.expected_harvest_date}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {crop.status === "active" && (
+                    <button
+                      type="button"
+                      onClick={() => void handleMarkHarvested(crop.id)}
+                      className="mt-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                     >
-                      {crop.status}
-                    </span>
-                  </div>
-
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
-                    <div>
-                      <span className="block text-slate-400">Sowing Date</span>
-                      <span className="font-medium text-slate-800">
-                        {crop.sowing_date}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="block text-slate-400">Est. Harvest</span>
-                      <span className="font-medium text-slate-800">
-                        {crop.expected_harvest_date}
-                      </span>
-                    </div>
-                  </div>
+                      {lang === "ne"
+                        ? "कटानी सम्पन्न चिन्ह लगाउनुहोस्"
+                        : "Mark as Harvested"}
+                    </button>
+                  )}
                 </div>
-
-                {crop.status === "active" && (
-                  <button
-                    type="button"
-                    onClick={() => void handleMarkHarvested(crop.id)}
-                    className="mt-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
-                  >
-                    Mark as Harvested
-                  </button>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -452,7 +589,11 @@ export function Crops() {
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
           <Filter className="h-4 w-4 text-emerald-600" />
-          <span>Season &amp; Category Filter</span>
+          <span>
+            {lang === "ne"
+              ? "याम र बाली प्रकार छान्नुहोस्"
+              : "Season & Category Filter"}
+          </span>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -469,7 +610,7 @@ export function Crops() {
                       : "text-slate-600 hover:text-slate-900"
                   }`}
                 >
-                  {season}
+                  {translateSeason(season, lang)}
                 </button>
               ),
             )}
@@ -480,12 +621,20 @@ export function Crops() {
             onChange={(e) => setCategoryFilter(e.target.value)}
             className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700"
           >
-            <option value="All">All Categories</option>
-            <option value="Cereal">Cereal</option>
-            <option value="Vegetable">Vegetable</option>
-            <option value="Pulse">Pulse</option>
-            <option value="Oilseed">Oilseed</option>
-            <option value="Cash Crop">Cash Crop</option>
+            <option value="All">
+              {lang === "ne" ? "सबै बाली प्रकार" : "All Categories"}
+            </option>
+            <option value="Cereal">{translateCategory("Cereal", lang)}</option>
+            <option value="Vegetable">
+              {translateCategory("Vegetable", lang)}
+            </option>
+            <option value="Pulse">{translateCategory("Pulse", lang)}</option>
+            <option value="Oilseed">
+              {translateCategory("Oilseed", lang)}
+            </option>
+            <option value="Cash Crop">
+              {translateCategory("Cash Crop", lang)}
+            </option>
           </select>
         </div>
       </div>
@@ -495,7 +644,11 @@ export function Crops() {
         <div className="flex min-h-[200px] items-center justify-center rounded-2xl border border-slate-200 bg-white">
           <div className="flex items-center gap-3 text-slate-600">
             <Loader2 className="h-5 w-5 animate-spin text-emerald-600" />
-            <span>Scoring Nepal crops against your soil and climate...</span>
+            <span>
+              {lang === "ne"
+                ? "तपाईंको माटो र हावापानीअनुसार बाली मूल्याङ्कन हुँदैछ..."
+                : "Scoring Nepal crops against your soil and climate..."}
+            </span>
           </div>
         </div>
       ) : (
@@ -512,15 +665,17 @@ export function Crops() {
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="text-lg font-bold text-slate-900">
-                          {rec.crop.name}
+                          {lang === "ne" ? rec.crop.nepaliName : rec.crop.name}
                         </h3>
                         <span className="text-sm text-slate-500">
-                          ({rec.crop.nepaliName})
+                          ({lang === "ne" ? rec.crop.name : rec.crop.nepaliName}
+                          )
                         </span>
                       </div>
                       <p className="mt-0.5 text-xs font-medium text-slate-500">
-                        {rec.crop.category} · {rec.crop.growthDays} days to
-                        harvest
+                        {translateCategory(rec.crop.category, lang)} ·{" "}
+                        {rec.crop.growthDays}{" "}
+                        {lang === "ne" ? "दिनमा तयार" : "days to harvest"}
                       </p>
                     </div>
 
@@ -530,10 +685,11 @@ export function Crops() {
                           rec.suitability,
                         )}`}
                       >
-                        {rec.suitability}
+                        {translateSuitability(rec.suitability, lang)}
                       </span>
                       <p className="mt-1 text-xs font-bold text-slate-700">
-                        Match Score: {rec.score}/100
+                        {lang === "ne" ? "अंक: " : "Match Score: "}
+                        {rec.score}/100
                       </p>
                     </div>
                   </div>
@@ -541,16 +697,19 @@ export function Crops() {
                   <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-600">
                     <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2.5 py-1">
                       <Droplets className="h-3.5 w-3.5 text-sky-600" />
-                      Water:{" "}
+                      {lang === "ne" ? "पानी आवश्यकता: " : "Water: "}
                       <strong className="capitalize">
-                        {rec.crop.waterRequirement}
+                        {translateWaterReq(rec.crop.waterRequirement, lang)}
                       </strong>
                     </span>
                     <span className="rounded-md bg-slate-100 px-2.5 py-1">
                       pH: {rec.crop.idealPhMin}–{rec.crop.idealPhMax}
                     </span>
                     <span className="rounded-md bg-slate-100 px-2.5 py-1">
-                      Seasons: {rec.crop.seasons.join(", ")}
+                      {lang === "ne" ? "याम: " : "Seasons: "}
+                      {rec.crop.seasons
+                        .map((s) => translateSeason(s, lang))
+                        .join(", ")}
                     </span>
                   </div>
 
@@ -558,14 +717,16 @@ export function Crops() {
                     {rec.reasons.map((reason, idx) => (
                       <li key={idx} className="flex items-start gap-2">
                         <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
-                        <span>{reason}</span>
+                        <span>{translateReason(reason, lang)}</span>
                       </li>
                     ))}
                   </ul>
 
                   <div className="mt-4">
                     <p className="text-xs font-semibold text-slate-700">
-                      Recommended Nepal Varieties:
+                      {lang === "ne"
+                        ? "नेपालका लागि सिफारिस गरिएका जातहरू:"
+                        : "Recommended Nepal Varieties:"}
                     </p>
                     <div className="mt-1.5 flex flex-wrap gap-1.5">
                       {rec.crop.varieties.map((v) => (
@@ -580,15 +741,20 @@ export function Crops() {
                   </div>
 
                   <div className="mt-4 rounded-xl bg-amber-50/70 p-3 text-xs text-amber-950">
-                    <span className="font-semibold">Fertilizer Guide: </span>
+                    <span className="font-semibold">
+                      {lang === "ne"
+                        ? "मलखाद मार्गदर्शन: "
+                        : "Fertilizer Guide: "}
+                    </span>
                     {rec.crop.fertilizerGuide}
                   </div>
 
                   {isExpanded && (
                     <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
                       <p className="mb-2 text-xs font-semibold text-slate-700">
-                        Auto-Generated Farming Stages ({rec.crop.stages.length}{" "}
-                        tasks):
+                        {lang === "ne"
+                          ? `स्वचालित बन्ने कृषि कार्य चरणहरू (${rec.crop.stages.length} कार्य):`
+                          : `Auto-Generated Farming Stages (${rec.crop.stages.length} tasks):`}
                       </p>
                       <div className="space-y-2">
                         {rec.crop.stages.map((stage, idx) => (
@@ -605,7 +771,9 @@ export function Crops() {
                               </p>
                             </div>
                             <span className="shrink-0 rounded bg-white px-2 py-0.5 font-medium text-slate-600">
-                              Day {stage.dayOffset}
+                              {lang === "ne"
+                                ? `दिन ${stage.dayOffset}`
+                                : `Day ${stage.dayOffset}`}
                             </span>
                           </div>
                         ))}
@@ -624,11 +792,14 @@ export function Crops() {
                   >
                     {isExpanded ? (
                       <>
-                        Hide Stages <ChevronUp className="h-4 w-4" />
+                        {lang === "ne" ? "चरण लुकाउनुहोस्" : "Hide Stages"}{" "}
+                        <ChevronUp className="h-4 w-4" />
                       </>
                     ) : (
                       <>
-                        Preview {rec.crop.stages.length} Stages{" "}
+                        {lang === "ne"
+                          ? `${rec.crop.stages.length} चरण हेर्नुहोस्`
+                          : `Preview ${rec.crop.stages.length} Stages`}{" "}
                         <ChevronDown className="h-4 w-4" />
                       </>
                     )}
@@ -640,7 +811,7 @@ export function Crops() {
                     className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700"
                   >
                     <Plus className="h-4 w-4" />
-                    Register Crop
+                    {lang === "ne" ? "बाली दर्ता गर्नुहोस्" : "Register Crop"}
                   </button>
                 </div>
               </div>
@@ -656,10 +827,14 @@ export function Crops() {
             <div className="flex items-start justify-between border-b border-slate-100 pb-3">
               <div>
                 <h2 className="text-lg font-bold text-slate-900">
-                  Register {modalCrop.name}
+                  {lang === "ne"
+                    ? `${modalCrop.nepaliName} दर्ता गर्नुहोस्`
+                    : `Register ${modalCrop.name}`}
                 </h2>
                 <p className="text-xs text-slate-500">
-                  Farm: {activeFarm.name} ({activeFarm.area_hectares} ha total)
+                  {lang === "ne" ? "खेत: " : "Farm: "}
+                  {activeFarm.name} ({activeFarm.area_hectares}{" "}
+                  {lang === "ne" ? "हे. जम्मा" : "ha total"})
                 </p>
               </div>
               <button
@@ -677,7 +852,7 @@ export function Crops() {
             >
               <div>
                 <label className="block text-xs font-semibold text-slate-700">
-                  Variety
+                  {lang === "ne" ? "बालीको जात" : "Variety"}
                 </label>
                 <select
                   value={variety}
@@ -694,7 +869,7 @@ export function Crops() {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700">
-                  Sowing Date
+                  {lang === "ne" ? "रोपाइँ मिति" : "Sowing Date"}
                 </label>
                 <input
                   type="date"
@@ -707,7 +882,9 @@ export function Crops() {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700">
-                  Cultivated Area (hectares)
+                  {lang === "ne"
+                    ? "खेती गरिने क्षेत्रफल (हेक्टरमा)"
+                    : "Cultivated Area (hectares)"}
                 </label>
                 <input
                   type="number"
@@ -722,16 +899,23 @@ export function Crops() {
 
               <div className="rounded-xl bg-emerald-50 p-3 text-xs text-emerald-900">
                 <p>
-                  <span className="font-semibold">Expected Harvest:</span>{" "}
+                  <span className="font-semibold">
+                    {lang === "ne"
+                      ? "अनुमानित कटानी मिति:"
+                      : "Expected Harvest:"}
+                  </span>{" "}
                   {sowingDate
                     ? addDaysToDate(sowingDate, modalCrop.growthDays)
                     : "—"}{" "}
-                  ({modalCrop.growthDays} days)
+                  ({modalCrop.growthDays} {lang === "ne" ? "दिन" : "days"})
                 </p>
                 <p className="mt-1">
-                  <span className="font-semibold">Calendar Automation:</span>{" "}
-                  {modalCrop.stages.length} stage tasks will be added to your
-                  farm calendar.
+                  <span className="font-semibold">
+                    {lang === "ne" ? "पात्रो स्वचालन:" : "Calendar Automation:"}
+                  </span>{" "}
+                  {lang === "ne"
+                    ? `तपाईंको कृषि पात्रोमा ${modalCrop.stages.length} वटा चरण कार्यहरू थपिनेछन्।`
+                    : `${modalCrop.stages.length} stage tasks will be added to your farm calendar.`}
                 </p>
               </div>
 
@@ -748,7 +932,7 @@ export function Crops() {
                   disabled={submitting}
                   className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
-                  Cancel
+                  {lang === "ne" ? "रद्द गर्नुहोस्" : "Cancel"}
                 </button>
                 <button
                   type="submit"
@@ -756,7 +940,13 @@ export function Crops() {
                   className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
                 >
                   {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                  {submitting ? "Registering..." : "Confirm & Generate Tasks"}
+                  {submitting
+                    ? lang === "ne"
+                      ? "दर्ता हुँदैछ..."
+                      : "Registering..."
+                    : lang === "ne"
+                      ? "पुष्टि गरी कार्य बनाउनुहोस्"
+                      : "Confirm & Generate Tasks"}
                 </button>
               </div>
             </form>
