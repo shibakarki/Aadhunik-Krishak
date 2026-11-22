@@ -5,6 +5,7 @@ export interface PlantAnalysisInput {
   file: File;
   cropHint?: string;
   farm?: Farm | null;
+  language?: 'en' | 'ne';
 }
 
 export interface PlantAnalysisResult {
@@ -131,7 +132,11 @@ async function compressImageToBase64(
   }
 }
 
-function buildPrompt(cropHint?: string, farm?: Farm | null): string {
+function buildPrompt(
+  cropHint?: string,
+  farm?: Farm | null,
+  language: 'en' | 'ne' = 'en'
+): string {
   const farmContext = farm
     ? `Farm context in Nepal:
 - Farm name: ${farm.name}
@@ -142,40 +147,47 @@ function buildPrompt(cropHint?: string, farm?: Farm | null): string {
 - Soil pH: ${farm.soil_ph ?? 'Unknown'}`
     : 'Farm context: General Nepal agriculture.';
 
+  const languageInstruction =
+    language === 'ne'
+      ? 'Write the text values for "crop_name", "diagnosis", "treatment", and "preventive_measures" in clear, natural Nepali (Devanagari script) using simple farmer-friendly words. Keep the JSON keys and "severity" value ("healthy" | "low" | "medium" | "high") strictly in English.'
+      : 'Write all descriptions in clear, simple farmer-friendly English.';
+
   return `You are an expert Nepali agronomist and plant pathologist helping a farmer diagnose a plant problem from a photo.
 
 ${farmContext}
 Farmer's crop note: ${cropHint?.trim() ? cropHint.trim() : 'Not specified (identify the plant/crop from the image if possible).'}
+Language requirement: ${languageInstruction}
 
 Analyze the uploaded photo carefully and respond ONLY with a valid JSON object using this exact schema:
 {
-  "crop_name": "Detected or confirmed crop name (e.g. Tomato, Rice, Potato, Maize, Unknown Plant)",
-  "diagnosis": "Clear name of the disease, pest, nutrient deficiency, or 'Healthy Plant' if no issue is found, plus 1-2 short sentences describing visible symptoms",
+  "crop_name": "Detected or confirmed crop name",
+  "diagnosis": "Clear name of the disease, pest, nutrient deficiency, or Healthy Plant if no issue is found, plus 1-2 short sentences describing visible symptoms",
   "severity": "healthy | low | medium | high",
   "confidence": "Percentage string like 88%",
   "treatment": "Practical, numbered or bulleted immediate treatment steps suitable for farmers in Nepal (include both organic/home remedies like neem oil/ash/baking soda and common local agro-vet options with safe usage notes). If healthy, give brief care tips. If the image is not a plant leaf/crop, explain clearly and ask for a clear leaf photo.",
   "preventive_measures": "3-4 concise preventive steps to stop recurrence (spacing, drainage, crop rotation, resistant varieties, sanitation)."
-}
-
-Keep advice farmer-friendly, accurate, and easy to act on today.`;
+}`;
 }
 
 export async function analyzePlantImage({
   file,
   cropHint,
   farm,
+  language = 'en',
 }: PlantAnalysisInput): Promise<PlantAnalysisResult> {
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY?.trim();
   if (!apiKey || apiKey === 'your-gemini-api-key') {
     throw new Error(
-      'Missing VITE_GEMINI_API_KEY in .env. Please add your Gemini API key and restart `npm run dev`.'
+      language === 'ne'
+        ? 'VITE_GEMINI_API_KEY सेट गरिएको छैन। कृपया .env जाँच गर्नुहोस्।'
+        : 'Missing VITE_GEMINI_API_KEY in .env. Please add your Gemini API key and restart `npm run dev`.'
     );
   }
 
   const { base64, mimeType } = await compressImageToBase64(file);
-  const prompt = buildPrompt(cropHint, farm);
+  const prompt = buildPrompt(cropHint, farm, language);
 
-  let lastError = 'Unable to analyze image right now.';
+  let hadBusyError = false;
 
   for (const model of GEMINI_MODELS) {
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(
@@ -218,17 +230,27 @@ export async function analyzePlantImage({
           response.status === 429 ||
           response.status >= 500
         ) {
-          lastError = `Model ${model} unavailable (${response.status}). Trying backup...`;
+          console.warn(
+            `PlantDoctor fallback from ${model} (${response.status})`
+          );
+          if (response.status === 429 || response.status >= 500) {
+            hadBusyError = true;
+          }
           continue;
         }
         if (response.status === 400 || response.status === 403) {
           throw new Error(
-            `Gemini API error (${response.status}). Check that VITE_GEMINI_API_KEY is valid. Details: ${errorBody.slice(0, 180)}`
+            language === 'ne'
+              ? 'एआई सेवा कन्फिगरेसनमा समस्या देखियो। कृपया API key जाँच गर्नुहोस्।'
+              : 'AI service configuration error. Please check your Gemini API key.'
           );
         }
-        throw new Error(
-          `Gemini request failed (${response.status}): ${errorBody.slice(0, 180)}`
+        console.warn(
+          `PlantDoctor error ${response.status}:`,
+          errorBody.slice(0, 180)
         );
+        hadBusyError = true;
+        continue;
       }
 
       const payload = (await response.json()) as {
@@ -245,7 +267,7 @@ export async function analyzePlantImage({
           .trim() ?? '';
 
       if (!rawText) {
-        lastError = `Model ${model} returned an empty response. Trying backup...`;
+        console.warn(`PlantDoctor empty response from ${model}`);
         continue;
       }
 
@@ -268,7 +290,8 @@ export async function analyzePlantImage({
       };
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
-        lastError = `Model ${model} timed out. Trying backup...`;
+        console.warn(`PlantDoctor timeout on ${model}`);
+        hadBusyError = true;
         continue;
       }
       throw err;
@@ -277,7 +300,13 @@ export async function analyzePlantImage({
     }
   }
 
-  throw new Error(lastError);
+  throw new Error(
+    language === 'ne'
+      ? 'एआई सेवा अहिले व्यस्त छ। कृपया केही सेकेन्ड पर्खेर फेरि प्रयास गर्नुहोस्।'
+      : hadBusyError
+        ? 'AI diagnosis service is temporarily busy. Please wait a few seconds and try again.'
+        : 'Unable to analyze this photo right now. Please try again with a clearer leaf photo.'
+  );
 }
 
 export async function fetchDiseaseScans(userId: string): Promise<DiseaseScan[]> {

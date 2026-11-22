@@ -11,6 +11,7 @@ import {
   Camera,
   CheckCircle2,
   History,
+  Languages,
   Leaf,
   Loader2,
   MapPin,
@@ -35,29 +36,112 @@ import type { DiseaseScan, RegisteredCrop } from '../types';
 
 const SEVERITY_STYLES: Record<
   DiseaseScan['severity'],
-  { label: string; badgeClass: string; borderClass: string }
+  { en: string; ne: string; badgeClass: string; borderClass: string }
 > = {
   healthy: {
-    label: 'Healthy',
+    en: 'Healthy',
+    ne: 'स्वस्थ बिरुवा',
     badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-200',
     borderClass: 'border-emerald-200',
   },
   low: {
-    label: 'Low Severity',
+    en: 'Low Severity',
+    ne: 'सामान्य अवस्था',
     badgeClass: 'bg-sky-100 text-sky-800 border-sky-200',
     borderClass: 'border-sky-200',
   },
   medium: {
-    label: 'Medium Severity',
+    en: 'Medium Severity',
+    ne: 'मध्यम समस्या',
     badgeClass: 'bg-amber-100 text-amber-800 border-amber-200',
     borderClass: 'border-amber-200',
   },
   high: {
-    label: 'High Severity',
+    en: 'High Severity',
+    ne: 'गम्भीर अवस्था',
     badgeClass: 'bg-rose-100 text-rose-800 border-rose-200',
     borderClass: 'border-rose-200',
   },
 };
+
+const COPY = {
+  en: {
+    badge: 'AI Plant Doctor',
+    title: 'Instant Crop Disease Diagnosis',
+    subtitle:
+      'Upload a leaf or plant photo to detect diseases, pests, or nutrient deficiencies and get practical treatment steps for Nepal.',
+    addFarm: 'Add/Select a Farm (Optional)',
+    step1Title: '1. Upload Plant / Leaf Photo',
+    step1Hint:
+      'For best accuracy, take a close, well-lit photo of the affected leaf or stem.',
+    dropTitle: 'Click to upload or drag & drop photo',
+    dropSub: 'Supports JPG, PNG, WebP',
+    chooseFile: 'Choose File',
+    useCamera: 'Use Camera',
+    step2Label: '2. Crop Name (Optional — AI can auto-detect)',
+    cropPlaceholder: 'e.g., Tomato, Rice, Potato, Maize...',
+    yourCrops: 'Your crops:',
+    analyzingBtn: 'Analyzing Plant Photo...',
+    diagnoseBtn: 'Diagnose & Get Solutions',
+    analyzingTitle: 'Inspecting leaf symptoms...',
+    analyzingDesc:
+      'Checking disease patterns, pest signs, and preparing tailored treatment recommendations for your farm.',
+    confidence: 'Confidence',
+    diagnosisTitle: 'Diagnosis',
+    treatmentTitle: 'Suggested Solutions & Treatment',
+    preventiveTitle: 'Preventive Measures',
+    readyTitle: 'Ready to Diagnose Your Crop',
+    readyDesc:
+      'Upload a photo on the left and click Diagnose & Get Solutions. Your AI diagnosis, severity level, and treatment plan will appear here.',
+    historyTitle: 'Recent Scan History',
+    scanSingular: 'scan',
+    scanPlural: 'scans',
+    loadingHistory: 'Loading scan history...',
+    noHistory:
+      'No past scans yet. Your diagnosed plant photos will appear here automatically.',
+    savedNotice: 'Diagnosis saved to your scan history.',
+    saveFailedNotice:
+      'Diagnosis ready (could not save to cloud history right now).',
+  },
+  ne: {
+    badge: 'एआई बाली चिकित्सक',
+    title: 'बाली रोग तथा समस्या पहिचान',
+    subtitle:
+      'पात वा बिरुवाको फोटो अपलोड गरी रोग, कीरा वा पोषक तत्वको कमी तुरुन्तै पत्ता लगाउनुहोस् र व्यावहारिक उपचार जान्नुहोस्।',
+    addFarm: 'फार्म थप्नुहोस् / छान्नुहोस् (ऐच्छिक)',
+    step1Title: '१. बिरुवा वा पातको फोटो अपलोड गर्नुहोस्',
+    step1Hint:
+      'सही नतिजाको लागि रोग लागेको पात वा डाँठको नजिक र स्पष्ट फोटो खिच्नुहोस्।',
+    dropTitle: 'फोटो अपलोड गर्न क्लिक गर्नुहोस् वा यहाँ तान्नुहोस्',
+    dropSub: 'JPG, PNG, WebP समर्थन गर्छ',
+    chooseFile: 'फाइल छान्नुहोस्',
+    useCamera: 'क्यामेरा प्रयोग',
+    step2Label: '२. बालीको नाम (ऐच्छिक — एआईले आफैं चिन्न सक्छ)',
+    cropPlaceholder: 'जस्तै: गोलभेडा, धान, आलु, मकै...',
+    yourCrops: 'तपाईंका बालीहरू:',
+    analyzingBtn: 'फोटो विश्लेषण हुँदैछ...',
+    diagnoseBtn: 'जाँच गर्नुहोस् र समाधान पाउनुहोस्',
+    analyzingTitle: 'पातको लक्षण जाँच हुँदैछ...',
+    analyzingDesc:
+      'रोग, कीरा र तपाईंको फार्मको अवस्था अनुसार उपचार सुझाव तयार गरिँदैछ।',
+    confidence: 'विश्वसनीयता',
+    diagnosisTitle: 'रोग / समस्या पहिचान',
+    treatmentTitle: 'सुझाइएको उपचार र समाधान',
+    preventiveTitle: 'रोकथामका उपायहरू',
+    readyTitle: 'बाली जाँच्न तयार छ',
+    readyDesc:
+      'बायाँतर्फ पातको फोटो अपलोड गरी "जाँच गर्नुहोस् र समाधान पाउनुहोस्" मा क्लिक गर्नुहोस्।',
+    historyTitle: 'अघिल्ला जाँचहरूको इतिहास',
+    scanSingular: 'जाँच',
+    scanPlural: 'जाँचहरू',
+    loadingHistory: 'इतिहास लोड हुँदैछ...',
+    noHistory:
+      'अहिलेसम्म कुनै जाँच गरिएको छैन। जाँच गरिएका फोटोहरूको विवरण यहाँ देखिनेछ।',
+    savedNotice: 'नतिजा तपाईंको इतिहासमा सुरक्षित गरियो।',
+    saveFailedNotice:
+      'नतिजा तयार भयो (अहिले क्लाउड इतिहासमा सुरक्षित गर्न सकिएन)।',
+  },
+} as const;
 
 function scanToResult(scan: DiseaseScan): PlantAnalysisResult {
   return {
@@ -79,6 +163,7 @@ export function PlantDoctor() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
+  const [language, setLanguage] = useState<'en' | 'ne'>('en');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -98,7 +183,8 @@ export function PlantDoctor() {
   const [history, setHistory] = useState<DiseaseScan[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
 
-  // Clean up object URL on image change/unmount
+  const t = COPY[language];
+
   useEffect(() => {
     return () => {
       if (previewUrl) {
@@ -107,7 +193,6 @@ export function PlantDoctor() {
     };
   }, [previewUrl]);
 
-  // Load registered crops for active farm
   useEffect(() => {
     async function loadFarmCrops() {
       if (!activeFarm) {
@@ -130,7 +215,6 @@ export function PlantDoctor() {
     void loadFarmCrops();
   }, [activeFarm]);
 
-  // Load past disease scans
   useEffect(() => {
     async function loadHistory() {
       if (!user) {
@@ -156,7 +240,11 @@ export function PlantDoctor() {
   const handleSelectFile = (file: File | null) => {
     if (!file) return;
     if (!file.type.startsWith('image/')) {
-      setError('Please upload a valid image file (JPG, PNG, or WebP).');
+      setError(
+        language === 'ne'
+          ? 'कृपया मान्य फोटो फाइल (JPG, PNG, वा WebP) अपलोड गर्नुहोस्।'
+          : 'Please upload a valid image file (JPG, PNG, or WebP).'
+      );
       return;
     }
 
@@ -195,7 +283,11 @@ export function PlantDoctor() {
 
   const handleDiagnose = async () => {
     if (!selectedFile) {
-      setError('Please upload or capture a plant/leaf photo first.');
+      setError(
+        language === 'ne'
+          ? 'कृपया पहिले बिरुवा वा पातको फोटो अपलोड गर्नुहोस्।'
+          : 'Please upload or capture a plant/leaf photo first.'
+      );
       return;
     }
 
@@ -208,6 +300,7 @@ export function PlantDoctor() {
         file: selectedFile,
         cropHint,
         farm: activeFarm,
+        language,
       });
 
       setActiveResult(result);
@@ -222,12 +315,10 @@ export function PlantDoctor() {
           });
           setHistory((prev) => [saved, ...prev]);
           setSelectedScanId(saved.id);
-          setSaveNotice('Diagnosis saved to your scan history.');
+          setSaveNotice(t.savedNotice);
         } catch (saveErr) {
           console.warn('Scan save failed:', saveErr);
-          setSaveNotice(
-            'Diagnosis ready (could not save to cloud history right now).'
-          );
+          setSaveNotice(t.saveFailedNotice);
         }
       }
     } catch (err) {
@@ -275,20 +366,24 @@ export function PlantDoctor() {
         <div>
           <div className="inline-flex items-center gap-2 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
             <Stethoscope className="h-3.5 w-3.5" />
-            AI Plant Doctor
+            {t.badge}
           </div>
-          <h1 className="mt-2 text-2xl font-bold text-slate-900">
-            Instant Crop Disease Diagnosis
-          </h1>
-          <p className="mt-1 text-sm text-slate-600">
-            Upload a leaf or plant photo to detect diseases, pests, or nutrient
-            deficiencies and get practical treatment steps for Nepal.
-          </p>
+          <h1 className="mt-2 text-2xl font-bold text-slate-900">{t.title}</h1>
+          <p className="mt-1 text-sm text-slate-600">{t.subtitle}</p>
         </div>
 
-        <div className="shrink-0">
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => setLanguage((prev) => (prev === 'en' ? 'ne' : 'en'))}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-semibold text-emerald-800 shadow-xs transition hover:bg-emerald-50"
+          >
+            <Languages className="h-3.5 w-3.5" />
+            {language === 'en' ? 'English' : 'नेपाली'}
+          </button>
+
           {activeFarm ? (
-            <div className="rounded-xl border border-emerald-200 bg-white px-4 py-2.5 text-xs text-slate-700 shadow-xs">
+            <div className="rounded-xl border border-emerald-200 bg-white px-4 py-2 text-xs text-slate-700 shadow-xs">
               <div className="flex items-center gap-1.5 font-semibold text-emerald-800">
                 <MapPin className="h-3.5 w-3.5" />
                 {activeFarm.name}
@@ -296,7 +391,7 @@ export function PlantDoctor() {
               <div className="mt-0.5 text-slate-500">
                 {[activeFarm.district, activeFarm.agro_zone]
                   .filter(Boolean)
-                  .join(' • ') || 'Active farm context attached'}
+                  .join(' • ') || 'Active farm'}
               </div>
             </div>
           ) : (
@@ -305,7 +400,7 @@ export function PlantDoctor() {
               className="inline-flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2 text-xs font-medium text-amber-800 transition hover:bg-amber-100"
             >
               <MapPin className="h-3.5 w-3.5" />
-              Add/Select a Farm (Optional)
+              {t.addFarm}
             </Link>
           )}
         </div>
@@ -317,14 +412,10 @@ export function PlantDoctor() {
         <div className="space-y-5 lg:col-span-5">
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-base font-semibold text-slate-900">
-              1. Upload Plant / Leaf Photo
+              {t.step1Title}
             </h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              For best accuracy, take a close, well-lit photo of the affected
-              leaf or stem.
-            </p>
+            <p className="mt-0.5 text-xs text-slate-500">{t.step1Hint}</p>
 
-            {/* Hidden file inputs */}
             <input
               ref={fileInputRef}
               type="file"
@@ -360,11 +451,9 @@ export function PlantDoctor() {
                   <Upload className="h-6 w-6" />
                 </div>
                 <p className="mt-3 text-sm font-medium text-slate-800">
-                  Click to upload or drag & drop photo
+                  {t.dropTitle}
                 </p>
-                <p className="mt-1 text-xs text-slate-500">
-                  Supports JPG, PNG, WebP
-                </p>
+                <p className="mt-1 text-xs text-slate-500">{t.dropSub}</p>
               </div>
             ) : (
               <div className="relative mt-4 overflow-hidden rounded-xl border border-slate-200 bg-slate-900">
@@ -384,7 +473,6 @@ export function PlantDoctor() {
               </div>
             )}
 
-            {/* Quick action buttons */}
             <div className="mt-3 grid grid-cols-2 gap-2.5">
               <button
                 type="button"
@@ -392,7 +480,7 @@ export function PlantDoctor() {
                 className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
               >
                 <Upload className="h-3.5 w-3.5" />
-                Choose File
+                {t.chooseFile}
               </button>
               <button
                 type="button"
@@ -400,31 +488,30 @@ export function PlantDoctor() {
                 className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
               >
                 <Camera className="h-3.5 w-3.5" />
-                Use Camera
+                {t.useCamera}
               </button>
             </div>
 
-            {/* Crop Hint Input */}
             <div className="mt-5 space-y-2">
               <label
                 htmlFor="crop-hint"
                 className="block text-xs font-semibold text-slate-700"
               >
-                2. Crop Name (Optional — AI can auto-detect)
+                {t.step2Label}
               </label>
               <input
                 id="crop-hint"
                 type="text"
                 value={cropHint}
                 onChange={(e) => setCropHint(e.target.value)}
-                placeholder="e.g., Tomato, Rice, Potato, Maize..."
+                placeholder={t.cropPlaceholder}
                 className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 focus:outline-none"
               />
 
               {registeredCrops.length > 0 && (
                 <div className="flex flex-wrap items-center gap-1.5 pt-1">
                   <span className="text-[11px] text-slate-500">
-                    Your crops:
+                    {t.yourCrops}
                   </span>
                   {registeredCrops.map((crop) => (
                     <button
@@ -460,12 +547,12 @@ export function PlantDoctor() {
               {analyzing ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Analyzing Plant Photo...
+                  {t.analyzingBtn}
                 </>
               ) : (
                 <>
                   <Sparkles className="h-4 w-4" />
-                  Diagnose & Get Solutions
+                  {t.diagnoseBtn}
                 </>
               )}
             </button>
@@ -480,11 +567,10 @@ export function PlantDoctor() {
                 <Loader2 className="h-7 w-7 animate-spin" />
               </div>
               <h3 className="mt-4 text-base font-semibold text-slate-900">
-                Inspecting leaf symptoms...
+                {t.analyzingTitle}
               </h3>
               <p className="mt-1 max-w-sm text-xs text-slate-500">
-                Checking disease patterns, pest signs, and preparing tailored
-                treatment recommendations for your farm.
+                {t.analyzingDesc}
               </p>
             </div>
           ) : activeResult && severityMeta ? (
@@ -501,14 +587,14 @@ export function PlantDoctor() {
                     <span
                       className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${severityMeta.badgeClass}`}
                     >
-                      {severityMeta.label}
+                      {severityMeta[language]}
                     </span>
                     <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
-                      Confidence: {activeResult.confidence}
+                      {t.confidence}: {activeResult.confidence}
                     </span>
                   </div>
                   <h2 className="mt-2.5 text-xl font-bold text-slate-900">
-                    Diagnosis
+                    {t.diagnosisTitle}
                   </h2>
                 </div>
               </div>
@@ -530,7 +616,7 @@ export function PlantDoctor() {
                 <div>
                   <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                     <Stethoscope className="h-4 w-4 text-emerald-600" />
-                    Suggested Solutions & Treatment
+                    {t.treatmentTitle}
                   </h3>
                   <div className="mt-2 rounded-xl border border-emerald-100 bg-emerald-50/50 p-4 text-sm leading-relaxed whitespace-pre-line text-slate-800">
                     {activeResult.treatment}
@@ -540,7 +626,7 @@ export function PlantDoctor() {
                 <div>
                   <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                     <ShieldCheck className="h-4 w-4 text-teal-600" />
-                    Preventive Measures
+                    {t.preventiveTitle}
                   </h3>
                   <div className="mt-2 rounded-xl border border-slate-200 bg-white p-4 text-sm leading-relaxed whitespace-pre-line text-slate-700">
                     {activeResult.preventiveMeasures}
@@ -554,15 +640,10 @@ export function PlantDoctor() {
                 <Leaf className="h-7 w-7" />
               </div>
               <h3 className="mt-4 text-base font-semibold text-slate-900">
-                Ready to Diagnose Your Crop
+                {t.readyTitle}
               </h3>
               <p className="mt-1.5 max-w-md text-sm text-slate-500">
-                Upload a photo on the left and click{' '}
-                <span className="font-semibold text-slate-700">
-                  Diagnose & Get Solutions
-                </span>
-                . Your AI diagnosis, severity level, and treatment plan will
-                appear here.
+                {t.readyDesc}
               </p>
             </div>
           )}
@@ -572,23 +653,21 @@ export function PlantDoctor() {
             <div className="flex items-center justify-between">
               <h2 className="flex items-center gap-2 text-base font-semibold text-slate-900">
                 <History className="h-4 w-4 text-emerald-600" />
-                Recent Scan History
+                {t.historyTitle}
               </h2>
               <span className="text-xs text-slate-500">
-                {history.length} {history.length === 1 ? 'scan' : 'scans'}
+                {history.length}{' '}
+                {history.length === 1 ? t.scanSingular : t.scanPlural}
               </span>
             </div>
 
             {loadingHistory ? (
               <div className="flex items-center gap-2 py-6 text-xs text-slate-500">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Loading scan history...
+                {t.loadingHistory}
               </div>
             ) : history.length === 0 ? (
-              <p className="py-6 text-xs text-slate-500">
-                No past scans yet. Your diagnosed plant photos will appear here
-                automatically.
-              </p>
+              <p className="py-6 text-xs text-slate-500">{t.noHistory}</p>
             ) : (
               <div className="mt-3 space-y-2.5">
                 {history.map((scan) => {
@@ -615,7 +694,7 @@ export function PlantDoctor() {
                           <span
                             className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${badge.badgeClass}`}
                           >
-                            {badge.label}
+                            {badge[language]}
                           </span>
                           <span className="text-[11px] text-slate-400">
                             {new Date(scan.created_at).toLocaleDateString()}
