@@ -23,6 +23,29 @@ Aadhunik Krishak helps small and medium-scale farmers in Nepal make informed agr
 
 ---
 
+
+## ❗ Problem Statement
+
+Small and medium-scale farmers in Nepal often lack access to reliable, location-specific agricultural guidance. Critical decisions around crop selection, irrigation, fertilizer application, and disease management frequently depend on generalized advice or traditional practices.
+
+In addition, essential agricultural information—soil characteristics, local weather, crop calendars, and market insights—is scattered across disconnected sources, making efficient farm planning difficult. These challenges often result in poor crop selection, inefficient water and fertilizer use, preventable crop losses, and reduced profitability.
+
+---
+
+## 💡 Proposed Solution
+
+**Aadhunik Krishak** provides an integrated, AI-powered platform that analyzes each farmer's individual farmland conditions and delivers personalized agricultural guidance throughout the entire crop lifecycle:
+
+- **Smart Crop Recommendation:** Suggests suitable crops across Nepal's Terai, Hill, and Mountain zones based on location, elevation, soil, weather, and seasonal conditions.
+- **Land Intelligence:** Analyzes geographical coordinates, terrain/elevation, soil chemistry (satellite SoilGrids + uploaded lab soil reports), and local weather patterns.
+- **Crop Lifecycle Management:** Allows farmers to register crops and sowing dates to auto-generate personalized sowing-to-harvest farming calendars.
+- **Smart Irrigation:** Delivers weather-aware watering recommendations and reminders using 48-hour rainfall forecasts and crop water demand.
+- **AI Plant Doctor:** Analyzes uploaded plant photographs using Gemini Vision to identify potential diseases and recommend preventive and treatment measures.
+- **Agricultural Intelligence:** Provides fertilizer guidance, weather alerts, and Nepal market price insights.
+- **AI Farming Assistant:** Answers farming questions in context using the farmer's active farm profile, soil, weather, and registered crops.
+
+---
+
 ## 🛠️ Tech Stack
 
 | Layer | Technology |
