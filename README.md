@@ -1,3 +1,4 @@
+```markdown
 # 🌾 Aadhunik Krishak
 
 **AI-Powered Smart Farming & Agricultural Intelligence Platform for Nepal**
@@ -181,6 +182,24 @@ Then merge your branch into `main` (via Pull Request or CLI) so the next team me
 
 ---
 
+## 🤝 Team Contributions & Documentation
+
+### Shiba Karki — Team Lead (`shiba` branch)
+Shiba led the overall project architecture, Git branching workflow, and Vite + React + TypeScript + Tailwind CSS setup. He designed the Supabase PostgreSQL schema and Row Level Security policies, curated the Nepal Crop Catalog and 77-district dataset, and built the core weather (`Open-Meteo`), soil (`SoilGrids` with regional fallback), crop recommendation, and smart irrigation engines. He also added strict signup validation, map reverse-geocoding with labeled satellite overlays and `m²` plot previews, AI-assisted Soil Test Report uploading (`SoilReportModal`) to recalibrate farm analyses, and Vercel SPA routing (`vercel.json`).  
+📄 [Detailed Technical Documentation](./docs/DOCS_SHIBA.md)
+
+### Sneha Magar — Frontend & Mapping (`sneha` branch)
+Sneha implemented the authentication and shared state foundation, including `AuthContext`, `FarmContext`, `ProtectedRoute`, and the responsive navigation `Layout`. She built the farmer sign-in and registration pages (`/login`, `/register`), the initial interactive Leaflet/OpenStreetMap farmland selector (`/farms/new`) with GPS detection and Street/Satellite views, and the centralized farmer `Dashboard` (`/`) displaying active farm profiles, live weather, crop summaries, and upcoming task reminders.  
+📄 [Detailed Technical Documentation](./docs/DOCS_SNEHA.md)
+
+### Priya — Bilingual UI & Crop Lifecycle (`priya` branch)
+Priya developed the English/Nepali bilingual experience (`LanguageContext`) with domain-specific agricultural translations and built the core agronomic workflow pages. She implemented `LandIntelligence` (`/land-intelligence`) to visualize soil chemistry, texture, and weather data, built `Crops` (`/crops`) with dynamic `crop_catalog` integration and automated task creation upon sowing registration, and created `Calendar` (`/calendar`) for managing lifecycle tasks alongside smart irrigation alerts.  
+📄 [Detailed Technical Documentation](./docs/DOCS_PRIYA.md)
+
+### Alisha — AI Intelligence & Market Insights (`alisha` branch)
+Alisha led the generative AI and advisory features of Aadhunik Krishak. She built the AI Plant Doctor (`/plant-doctor`) using Gemini Vision for photo-based crop disease diagnosis and treatment logging into `disease_scans`, developed the context-aware AI Farming Assistant (`/assistant`) powered by each farmer's active farm, soil, weather, and crop context, and integrated Nepal market price insights along with final integration and deployment readiness.  
+📄 [Detailed Technical Documentation](./docs/DOCS_ALISHA.md)
+
 ---
 
 ## Developer Field Notes (From the Digital Khet)
@@ -200,3 +219,16 @@ Then merge your branch into `main` (via Pull Request or CLI) so the next team me
 - **Alisha (Up Next!)** — Bringing Gemini AI magic so plants can finally tell us where it hurts
 
 *Warning to Alisha: Do not feed the AI Plant Doctor photos of your cold chiya. It will diagnose `severe_caffeine_deficiency`.*
+```
+
+---
+
+### Commit & Push `README.md` (`cmd`)
+Once saved, push it to `index` (and sync `shiba` if you'd like):
+
+```cmd
+git checkout index
+git add README.md
+git commit -m "docs: add short team contribution paragraphs and links to docs folder"
+git push origin index
+```
