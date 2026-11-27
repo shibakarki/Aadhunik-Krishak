@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aadhunik-krishak-v1';
+const CACHE_NAME = 'aadhunik-krishak-v2';
 const APP_SHELL = [
   '/',
   '/index.html',
@@ -31,10 +31,9 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
   const url = new URL(event.request.url);
-  // Let external APIs (Supabase, Open-Meteo, SoilGrids, Leaflet tiles, Gemini) bypass SW cache
   if (url.origin !== self.location.origin) return;
+  if (url.pathname.endsWith('.apk')) return;
 
-  // Network-first strategy so Vercel updates appear immediately, with offline cache fallback
   event.respondWith(
     fetch(event.request)
       .then((response) => {

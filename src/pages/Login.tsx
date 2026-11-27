@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { AlertCircle, Loader2, Lock, Mail, Sprout } from 'lucide-react';
+import { InstallAppButton } from '../components/InstallAppButton';
 import { useAuth } from '../context/AuthContext';
 
 export function Login() {
@@ -135,6 +136,10 @@ export function Login() {
             Create an account
           </Link>
         </p>
+
+        <div className="mt-6 pt-5 border-t border-slate-100">
+          <InstallAppButton />
+        </div>
       </div>
     </div>
   );
