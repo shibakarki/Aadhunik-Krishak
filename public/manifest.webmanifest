@@ -1,13 +1,22 @@
 {
+  "id": "/",
   "name": "Aadhunik Krishak",
   "short_name": "Krishak",
   "description": "AI-Powered Smart Farming & Agricultural Intelligence Platform for Nepal",
+  "lang": "en",
+  "dir": "ltr",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "orientation": "portrait-primary",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "orientation": "portrait",
   "background_color": "#ffffff",
   "theme_color": "#059669",
+  "prefer_related_applications": false,
+  "categories": ["productivity", "utilities", "education"],
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  },
   "icons": [
     {
       "src": "/icon-192.png",
@@ -26,6 +35,60 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshot-mobile.png",
+      "sizes": "540x720",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Aadhunik Krishak Mobile Dashboard"
+    },
+    {
+      "src": "/screenshot-desktop.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Aadhunik Krishak Desktop View"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "AI Plant Doctor",
+      "short_name": "Plant Doctor",
+      "url": "/plant-doctor",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Crop Recommendations",
+      "short_name": "Crops",
+      "url": "/crops",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Farming Calendar",
+      "short_name": "Calendar",
+      "url": "/calendar",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     }
   ]
 }
