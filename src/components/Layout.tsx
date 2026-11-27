@@ -19,6 +19,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useFarm } from '../context/FarmContext';
 import { isAdminEmail } from '../lib/admin';
+import { InstallAppButton } from './InstallAppButton';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -31,7 +32,7 @@ const navItems = [
   },
   { to: '/crops', label: 'Crops', icon: Sprout, end: false },
   { to: '/calendar', label: 'Calendar', icon: Calendar, end: false },
-   { to: '/market-price', label: 'Market Price', icon: TrendingUp, end: false },
+  { to: '/market-price', label: 'Market Price', icon: TrendingUp, end: false },
   {
     to: '/plant-doctor',
     label: 'Plant Doctor',
@@ -163,13 +164,14 @@ export function Layout() {
 
         {renderNavLinks()}
 
-        <div className="p-4 border-t border-slate-100">
-          <div className="mb-3 px-1">
+        <div className="p-4 border-t border-slate-100 space-y-2.5">
+          <div className="px-1">
             <p className="text-sm font-semibold text-slate-800 truncate">
               {displayName}
             </p>
             <p className="text-xs text-slate-500 truncate">{user?.email}</p>
           </div>
+          <InstallAppButton />
           <button
             type="button"
             onClick={handleSignOut}
@@ -192,18 +194,21 @@ export function Layout() {
           </span>
         </Link>
 
-        <button
-          type="button"
-          onClick={() => setMobileMenuOpen((prev) => !prev)}
-          aria-label="Toggle navigation menu"
-          className="p-2 rounded-lg text-slate-600 hover:bg-slate-100 cursor-pointer"
-        >
-          {mobileMenuOpen ? (
-            <X className="w-5 h-5" />
-          ) : (
-            <Menu className="w-5 h-5" />
-          )}
-        </button>
+        <div className="flex items-center gap-2">
+          <InstallAppButton compact />
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen((prev) => !prev)}
+            aria-label="Toggle navigation menu"
+            className="p-2 rounded-lg text-slate-600 hover:bg-slate-100 cursor-pointer"
+          >
+            {mobileMenuOpen ? (
+              <X className="w-5 h-5" />
+            ) : (
+              <Menu className="w-5 h-5" />
+            )}
+          </button>
+        </div>
       </header>
 
       {/* Mobile Drawer */}
@@ -225,10 +230,11 @@ export function Layout() {
               </button>
             </div>
             {renderNavLinks(() => setMobileMenuOpen(false))}
-            <div className="p-4 border-t border-slate-100">
-              <p className="text-sm font-semibold text-slate-800 truncate mb-2">
+            <div className="p-4 border-t border-slate-100 space-y-2.5">
+              <p className="text-sm font-semibold text-slate-800 truncate">
                 {displayName}
               </p>
+              <InstallAppButton />
               <button
                 type="button"
                 onClick={handleSignOut}
